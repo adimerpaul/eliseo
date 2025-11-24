@@ -290,8 +290,8 @@ class VentaController extends Controller{
             $detalleFactura = '';
             foreach ($detalles as $detalle) {
                 $detalleFactura .= "<detalle>
-                <actividadEconomica>477300</actividadEconomica>
-                <codigoProductoSin>99100</codigoProductoSin>
+                <actividadEconomica>4772100</actividadEconomica>
+                <codigoProductoSin>1003655</codigoProductoSin>
                 <codigoProducto>" . $detalle->producto_id . "</codigoProducto>
                 <descripcion>" . utf8_encode(str_replace("&", "&amp;", $detalle->nombre)) . "</descripcion>
                 <cantidad>" . $detalle->cantidad . "</cantidad>
@@ -331,7 +331,7 @@ class VentaController extends Controller{
             $cuf = $cuf . $cufd->codigoControl;
 //            <nombreRazonSocial>".utf8_encode(str_replace("&","&amp;",$cliente->nombre))."</nombreRazonSocial>
             $text = "<?xml version='1.0' encoding='UTF-8' standalone='yes'?>
-        <facturaElectronicaCompraVenta xmlns:xsi='http://www.w3.org/2001/XMLSchema-instance' xsi:noNamespaceSchemaLocation='facturaElectronicaCompraVenta.xsd'>
+        <facturaComputarizadaCompraVenta xsi:noNamespaceSchemaLocation='facturaComputarizadaCompraVenta.xsd' xmlns:xsi='http://www.w3.org/2001/XMLSchema-instance'>
         <cabecera>
         <nitEmisor>" . env('NIT') . "</nitEmisor>
         <razonSocialEmisor>" . env('RAZON') . "</razonSocialEmisor>
@@ -365,7 +365,7 @@ class VentaController extends Controller{
         <codigoDocumentoSector>" . $codigoDocumentoSector . "</codigoDocumentoSector>
         </cabecera>";
             $text .= $detalleFactura;
-            $text .= "</facturaElectronicaCompraVenta>";
+            $text .= "</facturaComputarizadaCompraVenta>";
 
             $xml = new SimpleXMLElement($text);
             $dom = new DOMDocument('1.0');
@@ -376,23 +376,23 @@ class VentaController extends Controller{
             $nameFile = $venta->id;
             $dom->save("archivos/" . $nameFile . '.xml');
 
-            $firmar = new Firmar();
-            $firmar->firmar("archivos/" . $nameFile . '.xml');
+//            $firmar = new Firmar();
+//            $firmar->firmar("archivos/" . $nameFile . '.xml');
 
 
             $xml = new DOMDocument();
             $xml->load("archivos/" . $nameFile . '.xml');
-            if (!$xml->schemaValidate('facturaElectronicaCompraVenta.xsd')) {
+            if (!$xml->schemaValidate('facturaComputarizadaCompraVenta.xsd')) {
                 echo "invalid";
             }
 
-            $file = "archivos/" . $nameFile . '.xml';
-            $gzfile = "archivos/" . $nameFile . '.xml' . '.gz';
-            $fp = gzopen($gzfile, 'w9');
-            gzwrite($fp, file_get_contents($file));
+            $file = "archivos/".$nameFile.'.xml';
+            $gzfile = "archivos/".$nameFile.'.xml'.'.gz';
+            $fp = gzopen ($gzfile, 'w9');
+            gzwrite ($fp, file_get_contents($file));
             gzclose($fp);
 
-            $archivo = $firmar->getFileGzip("archivos/" . $nameFile . '.xml' . '.gz');
+            $archivo=$this->getFileGzip("archivos/".$nameFile.'.xml'.'.gz');
             $hashArchivo = hash('sha256', $archivo);
             try {
                 $client = new \SoapClient("https://pilotosiatservicios.impuestos.gob.bo/v2/ServicioFacturacionCompraVenta?WSDL", [
@@ -492,6 +492,16 @@ class VentaController extends Controller{
                 $venta->load('cliente','ventaDetalles.producto')
             );
         });
+    }
+    function getFileGzip($fileName)
+    {
+        $fileName = $fileName;
+
+        $handle = fopen($fileName, "rb");
+        $contents = fread($handle, filesize($fileName));
+        fclose($handle);
+
+        return $contents;
     }
     function clienteUpdateOrCreate($request){
         $ci = $request->ci;
