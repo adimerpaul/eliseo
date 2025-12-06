@@ -71,7 +71,7 @@
                   <th class="pm-none" style="max-width: 70px;line-height: 0.9">Precio unitario</th>
                   <th class="pm-none" style="max-width: 70px;line-height: 0.9">Total</th>
                   <th class="pm-none" style="max-width: 70px;line-height: 0.9">Factor</th>
-                  <th class="pm-none" style="max-width: 70px;line-height: 0.9">Precio unitario 1.25</th>
+                  <th class="pm-none" style="max-width: 70px;line-height: 0.9">Precio unitario 1.30</th>
                   <th class="pm-none" style="max-width: 70px;line-height: 0.9">Total</th>
                   <th class="pm-none" style="max-width: 60px;line-height: 0.9">Precio venta</th>
                   <th class="pm-none" style="max-width: 70px;line-height: 0.9">Lote</th>
@@ -398,9 +398,10 @@ export default {
       return Math.round((Number(v) || 0) * 1000) / 1000
     },
 
-    roundTo(v, decimals = 1) {
-      const factor = Math.pow(10, decimals)
-      return Math.round((Number(v) || 0) * factor) / factor
+    roundTo(v) {
+      const num = Number(v) || 0
+      // múltiplo 0.5
+      return Math.ceil(num / 0.5) * 0.5
     },
 
     openProveedorDialog() {
@@ -527,7 +528,7 @@ export default {
                 lote: '',
                 fecha_vencimiento: '',
                 producto,
-                factor: 1.25,
+                factor: 1.30,
                 precio_venta: ''
               });
             }
@@ -567,7 +568,7 @@ export default {
         lote: '',
         fecha_vencimiento: '',
         producto,
-        factor: 1.25,
+        factor: 1.30,
         precio_venta: ''
       });
     },

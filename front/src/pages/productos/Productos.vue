@@ -108,7 +108,7 @@
                 @keyup="debouncedCambioBarra(producto)"
               />
             </td>
-            <td>{{ producto.stock }}</td>
+            <td>{{ producto.stock_disponible }}</td>
           </tr>
           </tbody>
         </q-markup-table>

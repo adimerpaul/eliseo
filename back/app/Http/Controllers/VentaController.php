@@ -110,6 +110,7 @@ class VentaController extends Controller{
     }
     public function store(Request $request)
     {
+        set_time_limit(300); // 5 minutos
         $data = $request->validate([
             'ci'        => 'nullable|string',
             'nombre'    => 'nullable|string',

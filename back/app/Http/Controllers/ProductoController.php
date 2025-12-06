@@ -92,11 +92,11 @@ class ProductoController extends Controller
                 'comprasDetalles as stock_disponible' => function ($q) use ($agencia) {
                     $q->where('estado', 'Activo')
                         ->whereNull('deleted_at');
-                    if (!empty($agencia)) {
-                        $q->whereHas('compra', function ($qc) use ($agencia) {
-                            $qc->where('agencia', $agencia);
-                        });
-                    }
+//                    if (!empty($agencia)) {
+//                        $q->whereHas('compra', function ($qc) use ($agencia) {
+//                            $qc->where('agencia', $agencia);
+//                        });
+//                    }
                 }
             ], 'cantidad_venta')
             ->orderBy('nombre')
