@@ -155,20 +155,20 @@ class CompraController extends Controller{
                     'fecha_vencimiento' => $p['fecha_vencimiento'],
                     'nro_factura' => $compra->nro_factura,
                 ]);
-                switch ($request->agencia) {
-                    case 'Almacen':
-                        Producto::where('id', $p['producto_id'])->increment('stockAlmacen', $p['cantidad']);
-                        break;
-                    case 'Challgua':
-                        Producto::where('id', $p['producto_id'])->increment('stockChallgua', $p['cantidad']);
-                        break;
-                    case 'Socavon':
-                        Producto::where('id', $p['producto_id'])->increment('stockSocavon', $p['cantidad']);
-                        break;
-                    case 'Catalina':
-                        Producto::where('id', $p['producto_id'])->increment('stockCatalina', $p['cantidad']);
-                        break;
-                }
+//                switch ($request->agencia) {
+//                    case 'Almacen':
+//                        Producto::where('id', $p['producto_id'])->increment('stockAlmacen', $p['cantidad']);
+//                        break;
+//                    case 'Challgua':
+//                        Producto::where('id', $p['producto_id'])->increment('stockChallgua', $p['cantidad']);
+//                        break;
+//                    case 'Socavon':
+//                        Producto::where('id', $p['producto_id'])->increment('stockSocavon', $p['cantidad']);
+//                        break;
+//                    case 'Catalina':
+//                        Producto::where('id', $p['producto_id'])->increment('stockCatalina', $p['cantidad']);
+//                        break;
+//                }
                 $producto = Producto::find($p['producto_id']);
                 $producto->precio = $p['precio_venta'];
                 $producto->save();
