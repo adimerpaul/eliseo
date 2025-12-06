@@ -198,6 +198,7 @@
           map-options
           dense
           outlined
+          :loading="loading"
           style="width: 100%;"
         />
       </q-card-section>
@@ -208,8 +209,10 @@
           flat
           label="Guardar"
           color="primary"
+          :loading="loading"
           :disabled="!codigoMotivoEvento"
           @click="() => {
+            this.loading=true
             $axios.post('eventoSignificativo', {
               venta_id: venta.id,
               codigoMotivoEvento: codigoMotivoEvento,
@@ -220,6 +223,8 @@
               ventasGet()
             }).catch(error => {
               $alert.error(error.response.data.message)
+            }).finally(() => {
+              loading = false
             })
           }"
         />

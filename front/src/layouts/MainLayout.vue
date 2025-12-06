@@ -25,7 +25,7 @@
               <div class="text-center" style="line-height: 1">
                 <div style="width: 100px; white-space: normal; overflow-wrap: break-word;">
                   {{ $store.user.name }} <br>
-                  <q-chip :color="$store.user.agencia=='Ayacucho'?'green':'blue'" dense size="xs" class="text-white">{{$store.user.agencia}}</q-chip>
+                  <q-chip :color="$store.user.role=='Admin'?'red':'blue'" dense size="xs" class="text-white">{{$store.user.role}}</q-chip>
                 </div>
                 <!--                <pre>{{$store.user}}</pre>-->
               </div>

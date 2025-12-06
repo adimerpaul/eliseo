@@ -214,123 +214,198 @@ hr{ border:0; border-top:1px dashed #000; margin:6px 0; }
     });
   }
 
-  static nota (factura, imprimir = true) {
-    console.log('factura', factura)
-    return new Promise((resolve, reject) => {
-      const a = this.numeroALetras(123)
-      const opts = {
-        errorCorrectionLevel: 'M',
-        type: 'png',
-        quality: 0.95,
-        width: 100,
-        margin: 1,
-        color: {
-          dark: '#000000',
-          light: '#FFF'
-        }
-      }
-      const env = useCounterStore().env
-      QRCode.toDataURL(`Fecha: ${factura.fecha_emision} Monto: ${parseFloat(factura.total).toFixed(2)}`, opts).then(url => {
-        let producto = ''
-        let cantidad = ''
-        if (factura.producto) {
-          // eslint-disable-next-line no-template-curly-in-string
-          producto = '<tr><td class=\'titder\'>PRODUCTO:</td><td class=\'contenido\'>' + factura.producto + '</td></tr>'
-        }
-        if (factura.cantidad) {
-          // eslint-disable-next-line no-template-curly-in-string
-          cantidad = '<tr><td class=\'titder\'>CANTIDAD:</td><td class=\'contenido\'>' + factura.cantidad + '</td></tr>'
+  static async nota(factura, imprimir = true) {
+    return new Promise(async (resolve, reject) => {
+      try {
+        const env = useCounterStore().env;
+
+        // ===== helpers =====
+        const ClaseConversor = conversor.conversorNumerosALetras;
+        const miConversor = new ClaseConversor();
+
+        const F2 = (n) => Number(n || 0).toFixed(2);
+        const S = (v) => (v ?? '').toString();
+
+        const total = Number(factura.total ?? 0);
+        const tipoDocumento = factura.tipo_venta === 'EGRESO' ? 'NOTA DE EGRESO' : 'NOTA DE VENTA';
+        const fechaEmision = factura.fecha_emision ?? factura.fecha ?? '—';
+        const clienteNombre = factura.nombre ?? factura?.cliente?.nombre ?? 'SN';
+        const clienteDoc = factura.ci ?? factura?.cliente?.ci ?? '0';
+        const comentario = factura.comentario ?? '';
+
+        const enteros = Math.floor(total);
+        const centavos = Math.round((total - enteros) * 100).toString().padStart(2, '0');
+        const SON = `Son ${miConversor.convertToText(enteros)} ${centavos}/100 Bolivianos`;
+
+        // Detalles de la venta
+        const detalles = Array.isArray(factura.venta_detalles) ? factura.venta_detalles : [];
+
+        // QR opcional
+        let qrUrl = null;
+        if (total > 0) {
+          qrUrl = await QRCode.toDataURL(
+            `Fecha: ${fechaEmision} Monto: ${F2(total)}`,
+            {
+              errorCorrectionLevel: 'M',
+              type: 'png',
+              width: 90,
+              margin: 0,
+              color: { dark: '#000', light: '#FFF' }
+            }
+          );
         }
 
-        let cadena = `${this.head()}
-  <!--div style='padding-left: 0.5cm;padding-right: 0.5cm'>
-  <img src="logo.png" alt="logo" style="width: 100px; height: 50px; display: block; margin-left: auto; margin-right: auto;">
-      <div class='titulo'>${factura.tipo_venta === 'EGRESO' ? 'NOTA DE EGRESO' : 'NOTA DE VENTA'}</div>
-      <div class='titulo2'>${factura.tipo_comprobante} <br>
-      Casa Matriz<br>
-      No. Punto de Venta 0<br>
-${'Calle Beni Nro. 60, entre 6 de Octubre y Potosí.'}<br>
-Tel. ${'25247993 - 76148555'}<br>
-Oruro</div!-->
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <style>
-   .mono {
-    font-family: Monospace,serif !important;
-    font-size: 18px !important;
-  }
+        // ===== HTML + CSS (similar al de factura) =====
+        let html = `${this.head()}
+<style>
+/* Ticket 80mm ~ 300px */
+.ticket { width:300px; margin:0 auto; }
+.mono { font-family: "Courier New", Courier, monospace; }
+.fs9 { font-size:9px; } .fs10{font-size:10px;} .fs11{font-size:11px;} .fs12{font-size:12px;}
+.center{ text-align:center; } .right{ text-align:right; } .left{ text-align:left; }
+hr{ border:0; border-top:1px dashed #000; margin:6px 0; }
+.title{ font-weight:700; text-transform:uppercase; line-height:1.15; }
+.small { font-size:8px; line-height:1.25; }
+
+.tbl{ width:100%; border-collapse:collapse; }
+.tbl td{ padding:2px 0; vertical-align:top; }
+
+.lbl{ width:110px; font-weight:700; text-transform:uppercase; }
+.val{ width:auto; }
+
+.det-header{ font-weight:700; text-transform:uppercase; margin:4px 0; }
+.item-desc{ font-weight:700; }
+.item-meta{ color:#111; font-size:9px; }
+
+.tot td{ padding:1px 0; }
+.tot .l{ width:70%; }
+.tot .r{ width:30%; text-align:right; }
+
+.qr{ display:flex; justify-content:center; margin-top:4px; }
+
+/* Estilo específico para nota */
+.nota-header {
+  background: #f5f5f5;
+  padding: 4px;
+  border-radius: 3px;
+  margin-bottom: 6px;
+}
+.product-card {
+  border-bottom: 1px dashed #ddd;
+  margin-bottom: 4px;
+  padding-bottom: 4px;
+}
+@page { margin: 6mm; }
 </style>
-<title></title>
-</head>
-<body>
-<div class="mono">
-<hr>
-<table>
-<tr><td class='titder'>ID:</td><td class='titder'>${factura.id }</td></tr>
-<tr><td class='titder'>NOMBRE/RAZÓN SOCIAL:</td><td class='titder'>${factura.nombre }</td></tr>
-<tr><!-- td class='titder'>NIT/CI/CEX:</td><td class='contenido'>${factura.client ? factura.client.nit : ''}</td --></tr>
-<tr><td class='titder'>FECHA DE EMISIÓN:</td><td class='contenido'>${factura.fecha}</td></tr>
-${producto}
-${cantidad}
-</table><hr><div class='titulo'>DETALLE</div>`
-        factura.venta_detalles.forEach(r => {
-          console.log('r', r)
-          cadena += `<div style='font-size: 12px'><b> ${r.producto?.nombre} </b></div>`
-          if (r.visible === 1) {
-            cadena += `<div>
-                    <span style='font-size: 18px;font-weight: bold'>
-                        ${r.cantidad}
-                    </span>
-                    <span>
-                    ${parseFloat(r.precio).toFixed(2)}
-                    </span>
 
-                    <span style='float:right'>
-                        ${parseFloat(r.precio * r.cantidad).toFixed(2)}
-                    </span>
-                    </div>`
+<div class="ticket mono fs10">
+  <div class="title fs12 center">${tipoDocumento}</div>
+
+  <div class="center small">
+    ${S(env.razon)}<br>
+    Casa Matriz<br>
+    No. Punto de Venta ${env.puntoVenta ?? 0}<br>
+    ${S(env.direccion)}<br>
+    Tel. ${S(env.telefono)}<br>
+    Oruro
+  </div>
+
+  <hr>
+
+  <table class="tbl fs10">
+    <tr><td class="lbl">DOCUMENTO N°</td><td class="val">${S(factura.id ?? '—')}</td></tr>
+    <tr><td class="lbl">FECHA EMISIÓN</td><td class="val">${S(fechaEmision)}</td></tr>
+  </table>
+
+  <hr>
+
+  <table class="tbl fs10">
+    <tr><td class="lbl">CLIENTE</td><td class="val">${S(clienteNombre)}</td></tr>
+    <tr><td class="lbl">NIT/CI</td><td class="val">${S(clienteDoc)}</td></tr>
+  </table>
+
+  ${comentario ? `<div class="nota-header fs9"><b>COMENTARIO:</b> ${comentario}</div>` : ''}
+
+  <hr>
+  <div class="det-header center">DETALLE DE PRODUCTOS</div>`;
+
+        // ===== DETALLES =====
+        detalles.forEach((d, index) => {
+          const prodId = d.producto_id ?? d.product_id ?? d?.producto?.id ?? '—';
+          const desc = S(d.nombre ?? d.descripcion ?? d?.producto?.nombre ?? '');
+          const unidad = S(d.unidad ?? d?.producto?.unidad ?? 'Unidad');
+          const qty = Number(d.cantidad ?? d.qty ?? 0);
+          const precioU = Number(d.precio ?? d.precioUnitario ?? 0);
+          const sub = d.subTotal ?? (qty * precioU);
+          const visible = d.visible !== 0; // Mostrar precios por defecto
+
+          if (visible) {
+            html += `
+  <div class="product-card">
+    <div class="item-desc fs10">${index + 1}. ${desc}</div>
+    <div class="item-meta">Código: ${prodId} | Unidad: ${unidad}</div>
+    <div class="fs10">
+      <span style="display:inline-block; width:40%;">${F2(qty)} x ${F2(precioU)}</span>
+      <span style="display:inline-block; width:60%; text-align:right;">${F2(sub)} Bs</span>
+    </div>
+  </div>`;
           } else {
-            cadena += `<div>
-                    <span style='font-size: 18px;font-weight: bold'>
-                        ${r.cantidad}
-                    </span>
-                    <span>
-
-                    </span>
-
-                    <span style='float:right'>
-
-                    </span>`
+            html += `
+  <div class="product-card">
+    <div class="item-desc fs10">${index + 1}. ${desc}</div>
+    <div class="item-meta">Código: ${prodId} | Unidad: ${unidad}</div>
+    <div class="fs10">
+      <span style="display:inline-block; width:40%;">${F2(qty)} unidades</span>
+      <span style="display:inline-block; width:60%; text-align:right;">—</span>
+    </div>
+  </div>`;
           }
-        })
-        cadena += `<hr>
-<div>${factura.comentario === '' || factura.comentario === null  || factura.comentario === undefined ? '' : 'Comentario: ' + factura.comentario}</div>
-      <table style='font-size: 8px;'>
-      <tr><td class='titder' style='width: 60%'>SUBTOTAL Bs</td><td class='titder'>${parseFloat(factura.total).toFixed(2)}</td></tr>
-<!--      <tr><td class='titder' style='width: 60%'>Descuento Bs</td><td class='titder'>${parseFloat(factura.descuento).toFixed(2)}</td></tr>-->
-<!--      <tr><td class='titder' style='width: 60%'>TOTAL Bs</td><td class='titder'>${parseFloat(factura.total - factura.descuento).toFixed(2)}</td></tr>-->
-      </table>
-      <br>
-      <div>Son ${a} ${((parseFloat(factura.total) - Math.floor(parseFloat(factura.total))) * 100).toFixed(2)} /100 Bolivianos</div><hr>
-        <!--div style='display: flex;justify-content: center;'>
-          <img  src="${url}" style="width: 75px; height: 75px; display: block; margin-left: auto; margin-right: auto;">
-        </div--!>
-      </div>
-      </div>
-</body>
-</html>`
-        // console.log('cadena', cadena)
-        document.getElementById('myElement').innerHTML = cadena
+        });
+
+        // ===== TOTALES =====
+        html += `
+  <hr>
+  <table class="tbl tot fs10">
+    <tr><td class="l left"><b>SUBTOTAL Bs</b></td><td class="r"><b>${F2(total)}</b></td></tr>
+    ${factura.descuento ? `
+    <tr><td class="l left">Descuento Bs</td><td class="r">${F2(factura.descuento)}</td></tr>
+    <tr><td class="l left"><b>TOTAL Bs</b></td><td class="r"><b>${F2(total - factura.descuento)}</b></td></tr>
+    ` : ''}
+  </table>
+
+  <div class="fs10" style="margin-top:6px; font-weight:bold;">${SON}</div>
+
+  <hr>
+  <div class="center small">
+    Este documento no es válido como factura fiscal<br>
+    Para facturación solicite su documento correspondiente
+  </div>
+
+  ${qrUrl ? `
+  <div class="qr">
+    <img src="${qrUrl}" alt="QR" style="width:90px; height:90px;">
+  </div>
+  <div class="center fs9" style="margin-top:2px;">
+    Escanear para verificar
+  </div>
+  ` : ''}
+</div>`;
+
+        // ===== IMPRIMIR =====
+        const el = document.getElementById('myElement');
+        if (el) el.innerHTML = html;
+
         if (imprimir) {
-          const d = new Printd()
-          d.print(document.getElementById('myElement'))
+          const d = new Printd();
+          d.print(el);
         }
-        resolve(url)
-      }).catch(err => {
-        reject(err)
-      })
-    })
+
+        resolve(qrUrl);
+      } catch (e) {
+        console.error('Error al imprimir nota:', e);
+        reject(e);
+      }
+    });
   }
 
   static cotizacion (detalle, cliente, total, descuento, imprimir = true) {
@@ -406,132 +481,6 @@ Oruro</div>
     })
   }
 
-  static notaCompra (factura) {
-    console.log('factura', factura)
-    return new Promise((resolve, reject) => {
-      const ClaseConversor = conversor.conversorNumerosALetras
-      const miConversor = new ClaseConversor()
-      const a = miConversor.convertToText(parseInt(factura.total))
-      const opts = {
-        errorCorrectionLevel: 'M',
-        type: 'png',
-        quality: 0.95,
-        width: 100,
-        margin: 1,
-        color: {
-          dark: '#000000',
-          light: '#FFF'
-        }
-      }
-      const env = useCounterStore().env
-      QRCode.toDataURL(`Fecha: ${factura.fecha_emision} Monto: ${parseFloat(factura.total).toFixed(2)}`, opts).then(async url => {
-        let cadena = `${this.head()}
-  <div style='padding-left: 0.5cm;padding-right: 0.5cm'>
-  <img src="logo.png" alt="logo" style="width: 100px; height: 50px; display: block; margin-left: auto; margin-right: auto;">
-      <div class='titulo'>${factura.tipo_venta === 'EGRESO' ? 'NOTA DE EGRESO' : 'NOTA DE COMPRA'}</div>
-      <div class='titulo2'>${env.razon} <br>
-      Casa Matriz<br>
-      No. Punto de Venta 0<br>
-${env.direccion}<br>
-Tel. ${env.telefono}<br>
-Oruro</div>
-<hr>
-<table>
-<tr><td class='titder'>NOMBRE/RAZÓN SOCIAL:</td><td class='contenido'>${factura.client ? factura.client.nombre : ''}</td>
-</tr><tr><td class='titder'>NIT/CI/CEX:</td><td class='contenido'>${factura.client ? factura.client.nit : ''}</td></tr>
-<!--<tr><td class='titder'>FECHA DE EMISIÓN:</td><td class='contenido'>${factura.fecha_emision}</td></tr>-->
-</table><hr><div class='titulo'>DETALLE</div>`
-        factura.buy_details.forEach(r => {
-          cadena += `<div style='font-size: 12px'><b>${r.nombre} </b></div>`
-          cadena += `<div><span style='font-size: 14px;font-weight: bold'>${r.cantidad}</span> ${parseFloat(r.precio).toFixed(2)} 0.00
-                    <span style='float:right'>${parseFloat(r.subtotal).toFixed(2)}</span></div>`
-        })
-        cadena += `<hr>
-      <table style='font-size: 8px;'>
-      <tr><td class='titder' style='width: 60%'>SUBTOTAL Bs</td><td class='conte2'>${parseFloat(factura.total).toFixed(2)}</td></tr>
-      <tr><td class='titder' style='width: 60%'>Descuento Bs</td><td class='conte2'>${parseFloat(factura.descuento).toFixed(2)}</td></tr>
-      <tr><td class='titder' style='width: 60%'>TOTAL Bs</td><td class='conte2'>${parseFloat(factura.total - factura.descuento).toFixed(2)}</td></tr>
-      </table>
-      <br>
-      <div>Son ${a} ${((parseFloat(factura.total) - Math.floor(parseFloat(factura.total))) * 100).toFixed(2)} /100 Bolivianos</div><hr>
-      <div style='display: flex;justify-content: center;'>
-        <img  src="${url}" style="width: 75px; height: 75px; display: block; margin-left: auto; margin-right: auto;">
-      </div></div>
-      </div>
-</body>
-</html>`
-        document.getElementById('myElement').innerHTML = cadena
-        const d = new Printd()
-        d.print(document.getElementById('myElement'))
-        resolve(url)
-      }).catch(err => {
-        reject(err)
-      })
-    })
-  }
-
-  static reportTotal (sales, title) {
-    const montoIngreso = sales.filter(r => r.tipoVenta === 'Ingreso').reduce((a, b) => a + b.montoTotal, 0)
-    const montoEgreso = sales.filter(r => r.tipoVenta === 'Egreso').reduce((a, b) => a + b.montoTotal, 0)
-    const montoTotal = montoIngreso - montoEgreso
-    console.log('montoTotal', montoTotal)
-    return new Promise((resolve, reject) => {
-      const ClaseConversor = conversor.conversorNumerosALetras
-      const miConversor = new ClaseConversor()
-      const montoAbsoluto = Math.abs(montoTotal)
-      const a = miConversor.convertToText(parseInt(montoAbsoluto))
-      const opts = {
-        errorCorrectionLevel: 'M',
-        type: 'png',
-        quality: 0.95,
-        width: 100,
-        margin: 1,
-        color: {
-          dark: '#000000',
-          light: '#FFF'
-        }
-      }
-      const env = useCounterStore().env
-      QRCode.toDataURL(` Monto: ${parseFloat(montoTotal).toFixed(2)}`, opts).then(url => {
-        let cadena = `${this.head()}
-  <div style='padding-left: 0.5cm;padding-right: 0.5cm'>
-  <img src="logo.png" alt="logo" style="width: 100px; height: 100px; display: block; margin-left: auto; margin-right: auto;">
-      <div class='titulo'>title</div>
-      <div class='titulo2'>${env.razon} <br>
-      Casa Matriz<br>
-      No. Punto de Venta 0<br>
-${env.direccion}<br>
-Tel. ${env.telefono}<br>
-Oruro</div>
-<hr>
-<table>
-</table><hr><div class='titulo'>DETALLE</div>`
-        sales.forEach(r => {
-          cadena += `<div style='font-size: 12px'><b> ${r.user.name} </b></div>`
-          cadena += `<div> ${parseFloat(r.montoTotal).toFixed(2)} ${r.tipoVenta}
-          <span style='float:right'> ${r.tipoVenta === 'Egreso' ? '-' : ''} ${parseFloat(r.montoTotal).toFixed(2)}</span></div>`
-        })
-        cadena += `<hr>
-      <table style='font-size: 8px;'>
-      <tr><td class='titder' style='width: 60%'>SUBTOTAL Bs</td><td class='conte2'>${parseFloat(montoTotal).toFixed(2)}</td></tr>
-      </table>
-      <br>
-      <div>Son ${a} ${((parseFloat(montoTotal) - Math.floor(parseFloat(montoTotal))) * 100).toFixed(2)} /100 Bolivianos</div><hr>
-      <div style='display: flex;justify-content: center;'>
-        <img  src="${url}" style="width: 75px; height: 75px; display: block; margin-left: auto; margin-right: auto;">
-      </div></div>
-      </div>
-</body>
-</html>`
-        document.getElementById('myElement').innerHTML = cadena
-        const d = new Printd()
-        d.print(document.getElementById('myElement'))
-        resolve(url)
-      }).catch(err => {
-        reject(err)
-      })
-    })
-  }
 
   static reciboCompra (buy) {
     console.log('reciboCompra', buy)

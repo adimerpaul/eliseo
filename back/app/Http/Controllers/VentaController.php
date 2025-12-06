@@ -13,9 +13,9 @@ use App\Models\VentaDetalle;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
-use Illuminate\Support\Facades\Storage;
 use SimpleXMLElement;
 use DOMDocument;
+
 class VentaController extends Controller{
     public function anular(Request $request, $id)
     {
@@ -40,7 +40,6 @@ class VentaController extends Controller{
                         ->first();
 
                     if ($cd && (int)$cd->producto_id === $productoId && $cd->estado === 'Activo') {
-                        // No superar la cantidad comprada original
                         $capacidad = max(0.0, (float)$cd->cantidad - (float)$cd->cantidad_venta);
                         $sumar     = min($porRestituir, $capacidad);
 
@@ -52,7 +51,7 @@ class VentaController extends Controller{
                     }
                 }
 
-                // 2) Si queda saldo por restituir (detalle viejo sin lote o capacidad agotada) -> FIFO
+                // 2) Si queda saldo por restituir -> FIFO
                 if ($porRestituir > 0) {
                     $lotes = CompraDetalle::where('producto_id', $productoId)
                         ->where('estado', 'Activo')
@@ -75,9 +74,10 @@ class VentaController extends Controller{
                     }
 
                     if ($porRestituir > 1e-9) {
-                        abort(422, 'No fue posible restaurar completamente el stock por lotes (capacidad insuficiente).');
+                        abort(422, 'No fue posible restaurar completamente el stock por lotes.');
                     }
                 }
+
                 #5 anular en impuesto
                 $Impuestos = new ImpuestoController();
                 $Impuestos->anularImpuestos($venta->cuf);
@@ -101,16 +101,17 @@ class VentaController extends Controller{
                 Mail::to($client->email)->send(new TestMail($details));
             }
 
-
             return response()->json([
                 'message' => 'Venta anulada y stock restituido correctamente.',
                 'venta'   => $venta,
             ]);
         });
     }
+
     public function store(Request $request)
     {
-        set_time_limit(300); // 5 minutos
+        set_time_limit(180); // 3 minutos
+
         $data = $request->validate([
             'ci'        => 'nullable|string',
             'nombre'    => 'nullable|string',
@@ -123,35 +124,25 @@ class VentaController extends Controller{
             'productos.*.precio'            => 'required|numeric|min:0',
             'productos.*.compra_detalle_id' => 'nullable|integer|exists:compra_detalles,id',
         ]);
-//        if (isset($data['ci']) && ($data['ci'] === '0' || $data['ci'] === 0)) {
-//            return response()->json(['message' => 'El campo CI/NIT no puede ser cero.'], 422);
-//        }
 
         $user    = $request->user();
         $cliente = $this->clienteUpdateOrCreate($request);
 
-        $codigoPuntoVenta   = 0;
-        $codigoSucursal     = 0;
-
-        $cui = Cui::where('codigoPuntoVenta', $codigoPuntoVenta)
-            ->where('codigoSucursal', $codigoSucursal)
-            ->where('fechaVigencia', '>=', now())
-            ->first();
-
-        if (!$cui) {
-            return response()->json(['message' => 'No existe CUI para la venta!!'], 400);
-        }
-
-        $cufd = Cufd::where('codigoPuntoVenta', $codigoPuntoVenta)
-            ->where('codigoSucursal', $codigoSucursal)
-            ->where('fechaVigencia', '>=', now())
-            ->first();
-        if (!$cufd) {
-            return response()->json(['message' => 'No existe CUFD para la venta!!'], 400);
-        }
-
-        return DB::transaction(function () use ($data, $user, $cliente, $cufd, $cui) {
+        return DB::transaction(function () use ($data, $user, $cliente) {
             error_log('Cliente: ' . json_encode($cliente));
+
+            // Determinar tipo de comprobante
+            $tipoComprobante = 'NOTA';
+            $ciValida = true;
+
+            // Verificar si es cliente "0" o vacío (NO enviar a impuestos)
+            if (empty($cliente->ci) || $cliente->ci === '0' || $cliente->ci === 0 || $cliente->ci === '') {
+                $tipoComprobante = 'NOTA';
+                $ciValida = false;
+            } else {
+                $tipoComprobante = 'FACTURA';
+                $ciValida = true;
+            }
 
             // 1) Venta
             $venta = Venta::create([
@@ -162,7 +153,7 @@ class VentaController extends Controller{
                 'fecha'            => now()->toDateString(),
                 'hora'             => now()->format('H:i:s'),
                 'estado'           => 'Activo',
-                'tipo_comprobante' => 'NOTA',
+                'tipo_comprobante' => $tipoComprobante,
                 'tipo_pago'        => $data['tipo_pago'],
                 'agencia'          => $data['agencia'] ?? ($user->agencia ?? null),
                 'total'            => 0,
@@ -175,11 +166,11 @@ class VentaController extends Controller{
                 $cantidad   = (float) $item['cantidad'];
                 $precio     = (float) $item['precio'];
 
-                // Snapshot de nombre del producto (para guardar en el detalle)
+                // Snapshot de nombre del producto
                 $producto = Producto::select('id','nombre')->findOrFail($productoId);
                 $nombreProducto = $producto->nombre;
 
-                // 2) Si viene lote seleccionado, crear UN detalle amarrado a ese lote
+                // 2) Si viene lote seleccionado
                 if (!empty($item['compra_detalle_id'])) {
                     $loteId = (int) $item['compra_detalle_id'];
 
@@ -197,7 +188,7 @@ class VentaController extends Controller{
                         abort(422, 'Stock insuficiente en el lote seleccionado.');
                     }
 
-                    // Crear detalle con snapshot completo
+                    // Crear detalle
                     VentaDetalle::create([
                         'venta_id'          => $venta->id,
                         'producto_id'       => $productoId,
@@ -214,10 +205,10 @@ class VentaController extends Controller{
                     $cd->save();
 
                     $total += $cantidad * $precio;
-                    continue; // Siguiente item
+                    continue;
                 }
 
-                // 3) Si NO enviaron lote: FIFO por vencimiento -> puede PARTIRSE en varios detalles
+                // 3) Si NO enviaron lote: FIFO por vencimiento
                 $restante = $cantidad;
 
                 $lotes = CompraDetalle::where('producto_id', $productoId)
@@ -234,7 +225,7 @@ class VentaController extends Controller{
                     $take = min((float)$l->cantidad_venta, $restante);
                     if ($take <= 0) continue;
 
-                    // Crear un detalle POR CADA LOTE consumido
+                    // Crear detalle
                     VentaDetalle::create([
                         'venta_id'          => $venta->id,
                         'producto_id'       => $productoId,
@@ -262,18 +253,43 @@ class VentaController extends Controller{
 
             // 4) Total final
             $venta->update(['total' => $total]);
-            if ($venta->ci === '0' || $venta->ci === 0 || $venta->ci === null || $venta->ci === '') {
+
+            // 5) Si CI es "0" o vacío, solo guardar como NOTA (no enviar a impuestos)
+            if (!$ciValida) {
+                // Guardar como NOTA, no enviar a impuestos
+                $venta->online = false;
+                $venta->leyenda = 'Ley N° 453: Puedes acceder a la reclamación cuando tus derechos han sido vulnerados.';
+                $venta->save();
+
                 return response()->json(
                     $venta->load('cliente','ventaDetalles.producto')
                 );
             }
 
+            // 6) Si CI es válida, enviar a impuestos (FACTURA)
+            $codigoPuntoVenta = 0;
+            $codigoSucursal   = 0;
 
-            //5) mandar a impuestos
+            $cui = Cui::where('codigoPuntoVenta', $codigoPuntoVenta)
+                ->where('codigoSucursal', $codigoSucursal)
+                ->where('fechaVigencia', '>=', now())
+                ->first();
+
+            if (!$cui) {
+                return response()->json(['message' => 'No existe CUI para la venta!!'], 400);
+            }
+
+            $cufd = Cufd::where('codigoPuntoVenta', $codigoPuntoVenta)
+                ->where('codigoSucursal', $codigoSucursal)
+                ->where('fechaVigencia', '>=', now())
+                ->first();
+            if (!$cufd) {
+                return response()->json(['message' => 'No existe CUFD para la venta!!'], 400);
+            }
+
+            // 7) Preparar datos para impuestos
             $leyendas = [
                 "Ley N° 453: Puedes acceder a la reclamación cuando tus derechos han sido vulnerados.",
-                "Ley N° 453: Puedes acceder a la reclamación cuando tus derechos han sido vulnerados.",
-                "Ley N° 453: El proveedor debe brindar atención sin discriminación, con respeto, calidez y cordialidad a los usuarios y consumidores.",
                 "Ley N° 453: El proveedor debe brindar atención sin discriminación, con respeto, calidez y cordialidad a los usuarios y consumidores.",
                 "Ley N° 453: Está prohibido importar, distribuir o comercializar productos expirados o prontos a expirar.",
                 "Ley N° 453: Los alimentos declarados de primera necesidad deben ser suministrados de manera adecuada, oportuna, continua y a precio justo.",
@@ -304,14 +320,15 @@ class VentaController extends Controller{
                 <numeroImei xsi:nil='true'/>
             </detalle>";
             }
+
             $token = env('TOKEN');
             $nit = env('NIT');
             $ambiente = env('AMBIENTE');
             $codigoSucursal = 0;
             $codigoModalidad = env('MODALIDAD');
             $codigoEmision = 1;
-            $tipoFacturaDocumento = 1; // 1 con credito fiscal 2 sin credito fiscal 3 nota credito debito
-            $codigoDocumentoSector = 1; //1 compra venta, 13 servicios basicos, 24 nota credito debito, 29 nota conciliacion
+            $tipoFacturaDocumento = 1;
+            $codigoDocumentoSector = 1;
             $numeroFactura = $venta->id;
             $codigoPuntoVenta = 0;
             $codigoSistema = env('CODIGO_SISTEMA');
@@ -330,7 +347,7 @@ class VentaController extends Controller{
                 $codigoPuntoVenta
             );
             $cuf = $cuf . $cufd->codigoControl;
-//            <nombreRazonSocial>".utf8_encode(str_replace("&","&amp;",$cliente->nombre))."</nombreRazonSocial>
+
             $text = "<?xml version='1.0' encoding='UTF-8' standalone='yes'?>
         <facturaComputarizadaCompraVenta xsi:noNamespaceSchemaLocation='facturaComputarizadaCompraVenta.xsd' xmlns:xsi='http://www.w3.org/2001/XMLSchema-instance'>
         <cabecera>
@@ -377,16 +394,6 @@ class VentaController extends Controller{
             $nameFile = $venta->id;
             $dom->save("archivos/" . $nameFile . '.xml');
 
-//            $firmar = new Firmar();
-//            $firmar->firmar("archivos/" . $nameFile . '.xml');
-
-
-            $xml = new DOMDocument();
-            $xml->load("archivos/" . $nameFile . '.xml');
-            if (!$xml->schemaValidate('facturaComputarizadaCompraVenta.xsd')) {
-                echo "invalid";
-            }
-
             $file = "archivos/".$nameFile.'.xml';
             $gzfile = "archivos/".$nameFile.'.xml'.'.gz';
             $fp = gzopen ($gzfile, 'w9');
@@ -395,12 +402,14 @@ class VentaController extends Controller{
 
             $archivo=$this->getFileGzip("archivos/".$nameFile.'.xml'.'.gz');
             $hashArchivo = hash('sha256', $archivo);
+
             try {
-                $client = new \SoapClient("https://pilotosiatservicios.impuestos.gob.bo/v2/ServicioFacturacionCompraVenta?WSDL", [
+                $url=env('URL_SIAT');
+                $client = new \SoapClient("${url}ServicioFacturacionCompraVenta?WSDL", [
                     'stream_context' => stream_context_create([
                         'http' => [
                             'header'  => "apikey: TokenApi " . $token,
-                            'timeout' => 5, // ⏱ máximo 5 segundos
+                            'timeout' => 30, // Aumentar timeout
                         ]
                     ]),
                     'cache_wsdl'   => WSDL_CACHE_NONE,
@@ -408,9 +417,8 @@ class VentaController extends Controller{
                     'trace'        => 1,
                     'use'          => SOAP_LITERAL,
                     'style'        => SOAP_DOCUMENT,
-                    'connection_timeout' => 5, // también para handshake inicial
+                    'connection_timeout' => 30,
                 ]);
-
 
                 $result = $client->recepcionFactura([
                     "SolicitudServicioRecepcionFactura" => [
@@ -432,7 +440,6 @@ class VentaController extends Controller{
                 ]);
                 error_log('result: ' . json_encode($result));
 
-//            result: {"RespuestaServicioFacturacion":{"codigoDescripcion":"RECHAZADA","codigoEstado":902,"mensajesList":{"codigo":1011,"descripcion":"EL COMPLEMENTO SOLO PUEDE SER ENVIADO CUANDO EL TIPO DE DOCUMENTO ES CARNET DE IDENTIDAD O CEDULA DE IDENTIDAD DE EXTRANJERO Complemento A1 tipoDocumento 5"},"transaccion":false}}
                 if( isset($result->RespuestaServicioFacturacion) &&
                     isset($result->RespuestaServicioFacturacion->transaccion) &&
                     !$result->RespuestaServicioFacturacion->transaccion ) {
@@ -450,60 +457,59 @@ class VentaController extends Controller{
                     $venta->cufd = $cufd->codigo;
                     $venta->online = true;
                     $venta->leyenda = $leyendaRandom;
+                    $venta->tipo_comprobante = 'FACTURA';
                     $venta->save();
 
-                    // enviar correo
-                    if ($cliente->email == null || $cliente->email == '') {
-                        return response()->json(
-                            $venta->load('cliente','ventaDetalles.producto')
-                        );
+                    // Enviar correo con queue (asíncrono)
+                    if ($cliente->email && $cliente->email != '') {
+                        Mail::to($cliente->email)->queue(new TestMail([
+                            "title" => "Factura",
+                            "body" => "Gracias por su compra",
+                            "online" => true,
+                            "anulado" => false,
+                            "cuf" => $cuf,
+                            "numeroFactura" => $numeroFactura,
+                            "sale_id" => $venta->id,
+                            "carpeta" => "archivos",
+                        ]));
                     }
-                    $details=[
-                        "title"=>"Factura",
-                        "body"=>"Gracias por su compra",
-                        "online"=>true,
-                        "anulado"=>false,
-                        "cuf"=>"",
-                        "numeroFactura"=>"",
-                        "sale_id"=>$venta->id,
-                        "carpeta"=>"archivos",
-                    ];
-                    Mail::to($cliente->email)->send(new TestMail($details));
                 }
-            }catch (\Exception $e) {
+            } catch (\Exception $e) {
                 error_log('Error: ' . $e->getMessage());
                 $venta->cuf = $cuf;
                 $venta->cufd = $cufd->codigo;
                 $venta->online = false;
                 $venta->leyenda = $leyendaRandom;
+                $venta->tipo_comprobante = 'FACTURA';
                 $venta->save();
-                $details = [
-                    "title" => "Factura",
-                    "body" => "Gracias por su compra",
-                    "online" => false,
-                    "anulado" => false,
-                    "cuf" => "",
-                    "numeroFactura" => "",
-                    "sale_id" => $venta->id,
-                    "carpeta" => "archivos",
-                ];
-                Mail::to($cliente->email)->send(new TestMail($details));
+
+                if ($cliente->email && $cliente->email != '') {
+                    Mail::to($cliente->email)->queue(new TestMail([
+                        "title" => "Factura",
+                        "body" => "Gracias por su compra",
+                        "online" => false,
+                        "anulado" => false,
+                        "cuf" => $cuf,
+                        "numeroFactura" => $numeroFactura,
+                        "sale_id" => $venta->id,
+                        "carpeta" => "archivos",
+                    ]));
+                }
             }
             return response()->json(
                 $venta->load('cliente','ventaDetalles.producto')
             );
         });
     }
+
     function getFileGzip($fileName)
     {
-        $fileName = $fileName;
-
         $handle = fopen($fileName, "rb");
         $contents = fread($handle, filesize($fileName));
         fclose($handle);
-
         return $contents;
     }
+
     function clienteUpdateOrCreate($request){
         $ci = $request->ci;
         $findCliente = Cliente::where('ci', $ci)->first();
@@ -514,6 +520,7 @@ class VentaController extends Controller{
             return Cliente::create($request->all());
         }
     }
+
     private function xmlSafe(?string $s): string
     {
         $s = $s ?? '';
@@ -522,6 +529,7 @@ class VentaController extends Controller{
         }
         return htmlspecialchars($s, ENT_XML1 | ENT_COMPAT, 'UTF-8');
     }
+
     function index(Request $request){
         $fechaInicio = $request->fechaInicio;
         $fechaFin = $request->fechaFin;
@@ -546,14 +554,17 @@ class VentaController extends Controller{
         }
         return $ventas;
     }
+
     function show($id){
         return Venta::with('user', 'cliente')->findOrFail($id);
     }
+
     function update(Request $request, $id){
         $venta = Venta::findOrFail($id);
         $venta->update($request->all());
         return $venta;
     }
+
     function destroy($id){
         $venta = Venta::findOrFail($id);
         $venta->delete();

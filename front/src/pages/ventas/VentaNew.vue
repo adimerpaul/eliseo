@@ -190,7 +190,6 @@
                                   <q-icon name="numbers" size="xs" />
                                 </template>
                               </q-input>
-<!--                              input de precio-->
                               <q-input
                                 v-model.number="item.precio"
                                 type="number"
@@ -541,8 +540,10 @@
           <div v-if="loteSelected" class="q-mt-lg">
             <q-card flat bordered>
               <q-card-section>
-                <div class="text-subtitle2 q-mb-sm">Configurar cantidad y precio</div>
-                <div class="row ">
+                <div class="text-subtitle2 q-mb-sm">
+                  Configurar cantidad y precio Lote: <b>{{loteSelected.lote}}</b>
+                </div>
+                <div class="row">
                   <div class="col-12 col-md-4">
                     <q-input
                       v-model.number="loteCantidad"
@@ -566,16 +567,12 @@
                       step="0.01"
                       dense outlined
                       label="Precio"
-                      :model-value="lotePrecio"
-                      @update:model-value="val => lotePrecio = val"
                     >
                       <template #prepend>
                         <q-icon name="attach_money" />
                       </template>
                     </q-input>
                   </div>
-<!--                  <div class="col-12 col-md-4">-->
-<!--                  </div>-->
                   <div class="col-12 col-md-4 text-center">
                     <div class="text-caption text-grey-7 q-mb-xs">Subtotal</div>
                     <div class="text-h6 text-primary text-weight-bold">
@@ -608,6 +605,7 @@
         </q-card-section>
       </q-card>
     </q-dialog>
+    <div id="myElement" class="hidden"> </div>
   </q-page>
 </template>
 
@@ -986,8 +984,14 @@ export default {
           timeout: 3000
         });
 
-        // Imprimir factura
-        Imprimir.printFactura(res.data);
+        // Imprimir factura o nota según el tipo de comprobante
+        if (res.data.tipo_comprobante === 'FACTURA') {
+          console.log('Imprimiendo factura...', res.data);
+          Imprimir.printFactura(res.data);
+        } else {
+          console.log('Imprimiendo nota de venta...', res.data);
+          Imprimir.nota(res.data);
+        }
 
         // Resetear formulario
         this.productosVentas = [];
