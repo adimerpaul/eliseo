@@ -52,6 +52,7 @@
             >
               <q-card
                 flat
+                bordered
                 class="product-card cursor-pointer"
                 :class="{
                   'product-card--selected': isProductInCart(producto),
@@ -61,9 +62,8 @@
               >
                 <q-img
                   :src="getImagenUrl(producto.imagen)"
-                  style="height: 90px;"
-                  fit="contain"
-                  class="bg-white"
+                  class="q-mb-xs"
+                  style="height: 120px;"
                 >
                   <template v-slot:error>
                     <div class="absolute-full flex flex-center bg-grey-2">
@@ -71,12 +71,18 @@
                     </div>
                   </template>
 
-                  <div class="absolute-bottom prod-bar">
-                    <span class="prod-stock" :class="producto.stock > 0 ? 'stock-ok' : 'stock-no'">
-                      {{ producto.stock > 0 ? producto.stock : '0' }}
-                    </span>
-                    <span class="prod-name">{{ $filters.textUpper(producto.nombre) }}</span>
-                    <span class="prod-price">{{ formatPrice(producto.precio) }} Bs</span>
+                  <div class="absolute-bottom text-center" style="padding: 0; margin: 0;">
+                    <div style="line-height: 0.9; font-size: 11px; font-weight: 600;">
+                      {{ $filters.textUpper(producto.nombre) }}
+                    </div>
+                    <div style="display: flex; justify-content: space-between; padding: 1px 3px;">
+                      <span class="prod-stock" :class="producto.stock > 0 ? 'stock-ok' : 'stock-no'">
+                        {{ producto.stock > 0 ? producto.stock : '0' }}
+                      </span>
+                      <span class="text-bold bg-orange text-black" style="font-size: 10px; padding: 0 2px;">
+                        {{ formatPrice(producto.precio) }} Bs
+                      </span>
+                    </div>
                   </div>
                 </q-img>
               </q-card>
@@ -822,24 +828,13 @@ export default {
   opacity: 0.55;
 }
 
-/* Barra inferior sobre la imagen */
-.prod-bar {
-  display: flex;
-  align-items: center;
-  background: rgba(0, 0, 0, 0.68);
-  padding: 1px 3px 2px;
-  gap: 3px;
-  min-height: 20px;
-}
-
 .prod-stock {
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 700;
   border-radius: 2px;
   padding: 0 3px;
   min-width: 16px;
   text-align: center;
-  flex-shrink: 0;
 }
 
 .stock-ok {
@@ -850,25 +845,6 @@ export default {
 .stock-no {
   background: #c62828;
   color: #fff;
-}
-
-.prod-name {
-  flex: 1;
-  font-size: 9px;
-  color: #fff;
-  font-weight: 600;
-  line-height: 1.2;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.prod-price {
-  font-size: 9px;
-  color: #ffd600;
-  font-weight: 700;
-  white-space: nowrap;
-  flex-shrink: 0;
 }
 
 /* ── Panel carrito ── */
