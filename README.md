@@ -1,24 +1,43 @@
-# Challgua (challgua)
+# Farmacia Eliseo
 
-Challgua
+Sistema para la compra y venta de productos medicos de Farmacia Eliseo. Incluye gestion de inventario, ventas, compras, proveedores, pedidos, productos por vencer/vencidos, usuarios e integracion de facturacion/impuestos SIAT.
 
-## Install the dependencies
+## Estructura
+
+```text
+front/   Aplicacion Quasar/Vue
+back/    API Laravel
+```
+
+## Instalar dependencias del frontend
+
 ```bash
+cd front
 yarn
 # or
 npm install
 ```
 
-### Start the app in development mode (hot-code reloading, error reporting, etc.)
+## Ejecutar frontend en desarrollo
+
 ```bash
+npm run dev
+# or
 quasar dev
 ```
 
+## Ejecutar backend en desarrollo
 
-### Build the app for production
 ```bash
-quasar build
+cd back
+composer install
+php artisan serve
+php artisan queue:listen
 ```
 
-### Customize the configuration
-See [Configuring quasar.config.js](https://v2.quasar.dev/quasar-cli-vite/quasar-config-js).
+## Compilar frontend
+
+```bash
+cd front
+npm run build
+```

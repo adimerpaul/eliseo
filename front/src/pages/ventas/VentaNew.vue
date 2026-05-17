@@ -1,250 +1,191 @@
 <template>
-  <q-page class="q-pa-md">
-    <!-- Encabezado -->
-    <div class="row items-center q-mb-md">
-      <q-btn flat round dense icon="arrow_back" @click="$router.go(-1)" class="q-mr-sm" />
-      <div class="text-h5 text-weight-bold text-primary">Ventas</div>
+  <q-page class="venta-page">
+    <!-- Header -->
+    <div class="row items-center venta-header q-px-sm">
+      <q-btn flat round dense icon="arrow_back" @click="$router.go(-1)" size="sm" />
+      <span class="text-subtitle1 text-weight-bold q-ml-xs">Ventas - Farmacia</span>
       <q-space />
-      <q-btn flat round dense icon="refresh" @click="productosGet" :loading="loading" />
+      <q-btn flat round dense icon="refresh" @click="productosGet" :loading="loading" size="sm" />
     </div>
 
-    <div class="row q-col-gutter-lg">
-      <!-- Panel izquierdo - Productos -->
-      <div class="col-12 col-md-7">
-        <q-card class="shadow-1" flat bordered>
-          <q-card-section class="bg-primary text-white">
-            <div class="text-h6">Productos Disponibles</div>
-            <div class="text-caption">Seleccione productos para la venta</div>
-          </q-card-section>
+    <div class="venta-body row no-wrap">
+      <!-- Panel izquierdo: productos -->
+      <div class="productos-panel col">
+        <!-- Buscador -->
+        <div class="q-pa-xs">
+          <q-input
+            ref="inputBuscarProducto"
+            v-model="productosSearch"
+            outlined dense
+            placeholder="Buscar producto"
+            debounce="300"
+            @update:modelValue="productosGet"
+            bg-color="white"
+          >
+            <template #append>
+              <q-icon name="search" color="grey-6" />
+              <q-btn round dense flat icon="mic" size="xs" v-if="recognition" @click="startRecognition('productosSearch')" />
+            </template>
+          </q-input>
+        </div>
 
-          <q-card-section>
-            <div class="row q-col-gutter-md q-mb-md">
-              <div class="col-12">
-                <q-input
-                  ref="inputBuscarProducto"
-                  v-model="productosSearch"
-                  outlined
-                  clearable
-                  label="Buscar producto por nombre o código de barras"
-                  dense
-                  debounce="300"
-                  @update:modelValue="productosGet"
-                  class="search-input"
+        <!-- Paginación -->
+        <div class="flex flex-center q-py-xs">
+          <q-pagination
+            v-model="pagination.page"
+            :max="Math.ceil(pagination.rowsNumber / pagination.rowsPerPage)"
+            color="primary"
+            @update:model-value="productosGet"
+            boundary-numbers
+            max-pages="7"
+            size="sm"
+          />
+        </div>
+
+        <!-- Grid de productos -->
+        <div class="productos-grid">
+          <div class="row" style="margin: 0 -1px;">
+            <div
+              v-for="producto in productos"
+              :key="producto.id"
+              class="prod-col"
+            >
+              <q-card
+                flat
+                class="product-card cursor-pointer"
+                :class="{
+                  'product-card--selected': isProductInCart(producto),
+                  'product-card--nostock': producto.stock <= 0
+                }"
+                @click="handleProductClick(producto)"
+              >
+                <q-img
+                  :src="getImagenUrl(producto.imagen)"
+                  style="height: 90px;"
+                  fit="contain"
+                  class="bg-white"
                 >
-                  <template #prepend>
-                    <q-icon name="search" />
-                  </template>
-                  <template #append>
-                    <q-btn round dense flat icon="mic" v-if="recognition" @click="startRecognition('productosSearch')" />
-                  </template>
-                </q-input>
-              </div>
-            </div>
-
-            <div class="flex flex-center q-mb-sm">
-              <q-pagination
-                size="sm"
-                v-model="pagination.page"
-                :max="Math.ceil(pagination.rowsNumber / pagination.rowsPerPage)"
-                color="primary"
-                @update:model-value="productosGet"
-                boundary-numbers
-                max-pages="5"
-              />
-            </div>
-
-            <div class="row q-col-gutter-xs">
-              <template v-for="producto in productos" :key="producto.id">
-                <div class="col-4 col-sm-3 col-md-2">
-                  <q-card
-                    class="product-card cursor-pointer"
-                    @click="handleProductClick(producto)"
-                    :class="{'product-card--selected': isProductInCart(producto), 'product-card--nostock': producto.stock <= 0}"
-                  >
-                    <div class="relative-position">
-                      <q-img
-                        :src="getImagenUrl(producto.imagen)"
-                        style="height: 72px;"
-                        fit="cover"
-                      >
-                        <template v-slot:error>
-                          <div class="absolute-full flex flex-center bg-grey-2">
-                            <q-icon name="image" size="20px" color="grey-5" />
-                          </div>
-                        </template>
-                        <div class="absolute-bottom product-name-bar">
-                          {{ $filters.textUpper(producto.nombre) }}
-                        </div>
-                        <div class="absolute-top-right" style="padding: 2px;">
-                          <q-badge
-                            :color="producto.stock > 0 ? 'green-7' : 'red-7'"
-                            style="font-size: 8px; padding: 1px 3px;"
-                          >
-                            {{ producto.stock > 0 ? producto.stock : '0' }}
-                          </q-badge>
-                        </div>
-                      </q-img>
+                  <template v-slot:error>
+                    <div class="absolute-full flex flex-center bg-grey-2">
+                      <q-icon name="medication" size="22px" color="grey-5" />
                     </div>
-                    <div class="product-price text-center text-primary text-weight-bold">
-                      {{ formatPrice(producto.precio) }} Bs
-                    </div>
-                  </q-card>
-                </div>
-              </template>
+                  </template>
 
-              <div v-if="productos.length === 0" class="col-12 text-center q-py-xl">
-                <q-icon name="search_off" size="48px" color="grey-5" />
-                <div class="text-h6 text-grey-6 q-mt-sm">No se encontraron productos</div>
-                <div class="text-caption text-grey-5">Intente con otro término de búsqueda</div>
-              </div>
+                  <div class="absolute-bottom prod-bar">
+                    <span class="prod-stock" :class="producto.stock > 0 ? 'stock-ok' : 'stock-no'">
+                      {{ producto.stock > 0 ? producto.stock : '0' }}
+                    </span>
+                    <span class="prod-name">{{ $filters.textUpper(producto.nombre) }}</span>
+                    <span class="prod-price">{{ formatPrice(producto.precio) }} Bs</span>
+                  </div>
+                </q-img>
+              </q-card>
             </div>
-          </q-card-section>
-        </q-card>
+
+            <div v-if="productos.length === 0 && !loading" class="full-width text-center q-py-xl">
+              <q-icon name="search_off" size="48px" color="grey-5" />
+              <div class="text-grey-6 q-mt-sm">No se encontraron productos</div>
+            </div>
+          </div>
+        </div>
       </div>
 
-      <!-- Panel derecho - Carrito de venta -->
-      <div class="col-12 col-md-5">
-        <q-card class="shadow-1" flat bordered>
-          <q-card-section class="bg-green text-white">
-            <div class="row items-center">
-              <div class="text-h6">Carrito de Venta</div>
-              <q-space />
-              <q-btn
-                round dense flat
-                icon="delete"
-                color="white"
-                @click="productosVentas = []; $q.notify({type: 'info', message: 'Carrito vaciado'})"
-                title="Vaciar carrito"
-              />
-              <q-btn
-                round dense flat
-                icon="shopping_cart"
-                color="white"
-                class="q-ml-xs"
-              >
-                <q-badge floating color="red" rounded>{{ productosVentas.length }}</q-badge>
-              </q-btn>
-            </div>
-          </q-card-section>
+      <!-- Panel derecho: carrito -->
+      <div class="cart-panel">
+        <!-- Header del carrito -->
+        <div class="cart-top row items-center q-px-sm">
+          <span class="text-caption text-weight-bold text-grey-8">
+            Cantidad de productos: {{ productosVentas.length }}
+          </span>
+          <q-space />
+          <q-btn
+            v-if="productosVentas.length > 0"
+            flat round dense icon="delete_sweep"
+            color="negative" size="xs"
+            @click="productosVentas = []"
+            title="Vaciar carrito"
+          />
+        </div>
 
-          <q-card-section>
-            <!-- Resumen rápido -->
-            <div class="row items-center q-mb-md" v-if="productosVentas.length > 0">
-              <div class="col-6">
-                <div class="text-subtitle1 text-weight-bold">Total:</div>
-              </div>
-              <div class="col-6 text-right">
-                <div class="text-h5 text-primary text-weight-bold">
-                  {{ formatPrice(totalVenta) }} Bs
-                </div>
-              </div>
-            </div>
+        <!-- Botón realizar venta (arriba, con total) -->
+        <div class="q-px-sm q-py-xs">
+          <q-btn
+            :label="`Realizar venta${productosVentas.length > 0 ? ' (' + formatPrice(totalVenta) + ' Bs)' : ''}`"
+            icon="add_circle_outline"
+            color="positive"
+            class="full-width"
+            no-caps
+            size="md"
+            :disable="productosVentas.length === 0"
+            :loading="loading"
+            @click="clickDialogVenta"
+          />
+        </div>
 
-            <!-- Lista de productos en carrito -->
-            <div class="cart-container" v-if="productosVentas.length > 0">
-              <div class="scrollable-container">
-                <div v-for="(item, index) in productosVentas" :key="index" class="cart-item q-mb-sm">
-                  <q-card flat bordered>
-                    <q-card-section class="q-pa-sm">
-                      <div class="row items-center">
-                        <!-- Imagen -->
-                        <div class="col-3">
-                          <q-img
-                            :src="getImagenUrl(item.producto?.imagen)"
-                            style="height: 60px; border-radius: 4px;"
-                            class="item-image"
-                          />
-                        </div>
+        <!-- Tabla de items del carrito -->
+        <div class="cart-scroll">
+          <table class="cart-table" v-if="productosVentas.length > 0">
+            <thead>
+              <tr>
+                <th class="text-left">Producto</th>
+                <th class="text-center">Lote</th>
+                <th class="text-center">Vence</th>
+                <th class="text-center">Cantidad</th>
+                <th class="text-right">Precio</th>
+                <th class="text-right">Subtotal</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(item, index) in productosVentas" :key="index" class="cart-row">
+                <td>
+                  <div class="row items-center no-wrap">
+                    <span class="del-btn" @click="productosVentas.splice(index, 1)" title="Quitar">&#x2715;</span>
+                    <q-img
+                      :src="getImagenUrl(item.producto?.imagen)"
+                      style="width: 26px; height: 26px; border-radius: 2px; flex-shrink: 0; background: #f5f5f5;"
+                      fit="contain"
+                      class="q-mx-xs"
+                    />
+                    <span class="cart-prod-name">{{ $filters.textUpper(item.producto?.nombre || '') }}</span>
+                  </div>
+                </td>
+                <td class="text-center cart-text">{{ item.lote || '—' }}</td>
+                <td class="text-center cart-text">{{ item.fecha_vencimiento || '—' }}</td>
+                <td class="text-center">
+                  <input
+                    v-model.number="item.cantidad"
+                    type="number" min="1"
+                    class="cart-input"
+                    style="width: 44px; text-align: center;"
+                    @change="updateSubtotal(item)"
+                  />
+                </td>
+                <td class="text-right">
+                  <input
+                    v-model.number="item.precio"
+                    type="number" step="0.01" min="0"
+                    class="cart-input"
+                    style="width: 58px; text-align: right;"
+                    @change="updateSubtotal(item)"
+                  />
+                </td>
+                <td class="text-right cart-subtotal">{{ formatPrice(item.precio * item.cantidad) }}</td>
+              </tr>
+            </tbody>
+            <tfoot>
+              <tr class="cart-total-row">
+                <td colspan="5" class="text-right">Total</td>
+                <td class="text-right cart-total-val">{{ formatPrice(totalVenta) }} Bs</td>
+              </tr>
+            </tfoot>
+          </table>
 
-                        <!-- Información -->
-                        <div class="col-7 q-pl-sm">
-                          <div class="text-caption text-weight-bold text-truncate">
-                            {{ $filters.textUpper(item.producto?.nombre) }}
-                          </div>
-                          <div class="text-caption text-grey-7">
-                            Lote: {{ item.lote || 'N/A' }}
-                          </div>
-                          <div class="row items-center q-mt-xs">
-                            <div class="col-6">
-                              <q-input
-                                v-model.number="item.cantidad"
-                                type="number"
-                                min="1"
-                                dense
-                                borderless
-                                style="max-width: 70px;"
-                                @update:model-value="updateSubtotal(item)"
-                              >
-                                <template #prepend>
-                                  <q-icon name="numbers" size="xs" />
-                                </template>
-                              </q-input>
-                              <q-input
-                                v-model.number="item.precio"
-                                type="number"
-                                step="0.01"
-                                min="0"
-                                dense
-                                borderless
-                                style="max-width: 100px; margin-left: 8px;"
-                                @update:model-value="updateSubtotal(item)"
-                              >
-                                <template #prepend>
-                                  <q-icon name="attach_money" size="xs" />
-                                </template>
-                              </q-input>
-                            </div>
-                            <div class="col-6 text-right">
-                              <div class="text-subtitle2 text-primary">
-                                {{ formatPrice(item.precio * item.cantidad) }} Bs
-                              </div>
-                            </div>
-                          </div>
-                        </div>
+          <div v-else class="flex flex-center column q-py-lg">
+            <q-icon name="shopping_cart" size="36px" color="grey-4" />
+            <div class="text-caption text-grey-5 q-mt-xs">Carrito vacío</div>
+          </div>
+        </div>
 
-                        <!-- Acciones -->
-                        <div class="col-2 text-center">
-                          <q-btn
-                            flat
-                            round
-                            dense
-                            color="red"
-                            icon="close"
-                            size="sm"
-                            @click="removeFromCart(index)"
-                            title="Eliminar"
-                          />
-                        </div>
-                      </div>
-                    </q-card-section>
-                  </q-card>
-                </div>
-              </div>
-            </div>
-
-            <!-- Carrito vacío -->
-            <div v-else class="text-center q-py-xl">
-              <q-icon name="shopping_cart" size="64px" color="grey-4" />
-              <div class="text-h6 text-grey-6 q-mt-sm">Carrito vacío</div>
-              <div class="text-caption text-grey-5">Agregue productos desde el panel izquierdo</div>
-            </div>
-
-            <!-- Acciones -->
-            <div class="q-mt-lg">
-              <q-btn
-                label="Procesar Venta"
-                color="positive"
-                icon="point_of_sale"
-                class="full-width"
-                size="lg"
-                no-caps
-                :loading="loading"
-                :disable="productosVentas.length === 0"
-                @click="clickDialogVenta"
-              />
-            </div>
-          </q-card-section>
-        </q-card>
       </div>
     </div>
 
@@ -269,85 +210,39 @@
                   <q-form>
                     <div class="row q-col-gutter-sm">
                       <div class="col-12">
-                        <q-input
-                          v-model="venta.nit"
-                          outlined
-                          dense
-                          label="CI/NIT *"
-                          @update:model-value="searchCliente"
-                          :debounce="500"
-                          :rules="[val => !!val || 'Campo requerido']"
-                        >
-                          <template #prepend>
-                            <q-icon name="badge" />
-                          </template>
+                        <q-input v-model="venta.nit" outlined dense label="CI/NIT *"
+                          @update:model-value="searchCliente" :debounce="500"
+                          :rules="[val => !!val || 'Campo requerido']">
+                          <template #prepend><q-icon name="badge" /></template>
                         </q-input>
                       </div>
                       <div class="col-12">
-                        <q-input
-                          v-model="venta.nombre"
-                          outlined
-                          dense
-                          label="Nombre *"
-                          :rules="[val => !!val || 'Campo requerido']"
-                        >
-                          <template #prepend>
-                            <q-icon name="person" />
-                          </template>
+                        <q-input v-model="venta.nombre" outlined dense label="Nombre *"
+                          :rules="[val => !!val || 'Campo requerido']">
+                          <template #prepend><q-icon name="person" /></template>
                         </q-input>
                       </div>
                       <div class="col-12">
-                        <q-input
-                          v-model="venta.email"
-                          outlined
-                          dense
-                          label="Email"
-                          type="email"
-                        >
-                          <template #prepend>
-                            <q-icon name="email" />
-                          </template>
+                        <q-input v-model="venta.email" outlined dense label="Email" type="email">
+                          <template #prepend><q-icon name="email" /></template>
                         </q-input>
                       </div>
                       <div class="col-12">
-                        <q-select
-                          v-model="venta.codigoTipoDocumentoIdentidad"
-                          outlined
-                          dense
-                          label="Tipo de documento"
-                          :options="codigoTipoDocumentoIdentidades"
-                          emit-value
-                          map-options
-                        >
-                          <template #prepend>
-                            <q-icon name="description" />
-                          </template>
+                        <q-select v-model="venta.codigoTipoDocumentoIdentidad" outlined dense
+                          label="Tipo de documento" :options="codigoTipoDocumentoIdentidades"
+                          emit-value map-options>
+                          <template #prepend><q-icon name="description" /></template>
                         </q-select>
                       </div>
                       <div class="col-12">
-                        <q-input
-                          v-model="venta.complemento"
-                          outlined
-                          dense
-                          label="Complemento"
-                        >
-                          <template #prepend>
-                            <q-icon name="info" />
-                          </template>
+                        <q-input v-model="venta.complemento" outlined dense label="Complemento">
+                          <template #prepend><q-icon name="info" /></template>
                         </q-input>
                       </div>
                       <div class="col-12">
-                        <q-select
-                          v-model="venta.tipo_pago"
-                          outlined
-                          dense
-                          label="Tipo de pago *"
-                          :options="['Efectivo', 'QR']"
-                          :rules="[val => !!val || 'Campo requerido']"
-                        >
-                          <template #prepend>
-                            <q-icon name="payments" />
-                          </template>
+                        <q-select v-model="venta.tipo_pago" outlined dense label="Tipo de pago *"
+                          :options="['Efectivo', 'QR']" :rules="[val => !!val || 'Campo requerido']">
+                          <template #prepend><q-icon name="payments" /></template>
                         </q-select>
                       </div>
                     </div>
@@ -385,23 +280,16 @@
                       <tr v-for="(item, index) in productosVentas" :key="index">
                         <td>
                           <div class="row items-center">
-                            <q-img
-                              :src="getImagenUrl(item.producto?.imagen)"
-                              style="width: 40px; height: 40px; border-radius: 4px;"
-                              class="q-mr-sm"
-                            />
-                            <div class="text-caption">
-                              {{ $filters.textUpper(item.producto?.nombre || '') }}
-                            </div>
+                            <q-img :src="getImagenUrl(item.producto?.imagen)"
+                              style="width: 40px; height: 40px; border-radius: 4px;" class="q-mr-sm" />
+                            <div class="text-caption">{{ $filters.textUpper(item.producto?.nombre || '') }}</div>
                           </div>
                         </td>
                         <td class="text-center">{{ item.lote || '—' }}</td>
                         <td class="text-center">{{ item.fecha_vencimiento || '—' }}</td>
                         <td class="text-center">{{ item.cantidad }}</td>
                         <td class="text-right">{{ formatPrice(item.precio) }} Bs</td>
-                        <td class="text-right text-weight-bold">
-                          {{ formatPrice(item.precio * item.cantidad) }} Bs
-                        </td>
+                        <td class="text-right text-weight-bold">{{ formatPrice(item.precio * item.cantidad) }} Bs</td>
                       </tr>
                       </tbody>
                       <tfoot class="bg-grey-2">
@@ -414,16 +302,9 @@
                       <tr v-if="venta.tipo_pago === 'Efectivo'">
                         <td colspan="4" class="text-right text-h6">Efectivo Recibido</td>
                         <td colspan="2" class="text-right">
-                          <q-input
-                            v-model.number="efectivo"
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            dense
-                            outlined
-                            style="max-width: 150px; float: right;"
-                            @update:model-value="calculateChange"
-                          />
+                          <q-input v-model.number="efectivo" type="number" step="0.01" min="0"
+                            dense outlined style="max-width: 150px; float: right;"
+                            @update:model-value="calculateChange" />
                         </td>
                       </tr>
                       <tr v-if="venta.tipo_pago === 'Efectivo'">
@@ -442,159 +323,121 @@
         </q-card-section>
 
         <q-card-actions align="right" class="q-pa-md bg-grey-2">
-          <q-btn
-            label="Cancelar"
-            color="grey"
-            @click="ventaDialog = false"
-            no-caps
-            class="q-px-lg"
-          />
-          <q-btn
-            label="Confirmar Venta"
-            color="positive"
-            icon="check"
-            @click="submitVenta"
-            :loading="loading"
-            no-caps
-            class="q-px-lg"
-          />
+          <q-btn label="Cancelar" color="grey" @click="ventaDialog = false" no-caps class="q-px-lg" />
+          <q-btn label="Confirmar Venta" color="positive" icon="check" @click="submitVenta"
+            :loading="loading" no-caps class="q-px-lg" />
         </q-card-actions>
       </q-card>
     </q-dialog>
 
     <!-- Diálogo de selección de lote -->
     <q-dialog v-model="loteDialog" persistent>
-      <q-card style="max-width: 800px; width: 90vw">
-        <q-card-section class="row items-center q-pb-none bg-primary text-white">
-          <div class="text-h6">Seleccionar Lote</div>
+      <q-card style="min-width: 480px; max-width: 600px; width: 90vw;">
+        <q-card-section class="row items-center q-pb-sm">
+          <div class="text-h6">Seleccionar lote</div>
           <q-space />
           <q-btn flat round dense icon="close" @click="loteDialog = false" />
         </q-card-section>
+        <q-separator />
+        <q-card-section class="q-pt-sm">
+          <!-- Info del producto -->
+          <q-card flat bordered class="q-mb-sm bg-grey-1">
+            <q-card-section class="q-pa-sm">
+              <div class="row items-center no-wrap">
+                <q-img
+                  :src="getImagenUrl(loteProducto?.imagen)"
+                  style="width: 44px; height: 44px; border-radius: 4px; flex-shrink: 0;"
+                  fit="contain"
+                  class="bg-white q-mr-sm"
+                />
+                <div>
+                  <div class="text-caption text-grey-6">Producto seleccionado</div>
+                  <div class="text-body2 text-weight-bold">{{ $filters.textUpper(loteProducto?.nombre || '') }}</div>
+                  <div class="row q-gutter-xs q-mt-xs">
+                    <q-badge color="blue-7" outline>
+                      <q-icon name="layers" size="10px" class="q-mr-xs" />{{ lotes.length }} lote(s)
+                    </q-badge>
+                    <q-badge color="green-7" outline>
+                      <q-icon name="inventory" size="10px" class="q-mr-xs" />Max stock por lote: {{ maxStockLote }}
+                    </q-badge>
+                  </div>
+                </div>
+              </div>
+            </q-card-section>
+          </q-card>
 
-        <q-card-section>
-          <div class="q-mb-md">
-            <div class="text-subtitle1 text-weight-bold">
-              Producto: {{ $filters.textUpper(loteProducto?.nombre || '') }}
-            </div>
-            <div class="text-caption text-grey-7">
-              Precio: {{ formatPrice(loteProducto?.precio) }} Bs
-            </div>
-          </div>
-
-          <q-markup-table dense flat bordered class="no-shadow" v-if="lotes.length > 0">
-            <thead class="bg-grey-3">
-            <tr>
-              <th class="text-center">#</th>
-              <th class="text-left">Lote</th>
-              <th class="text-center">Vencimiento</th>
-              <th class="text-center">Días Restantes</th>
-              <th class="text-center">Disponible</th>
-              <th class="text-center">Acción</th>
-            </tr>
+          <!-- Tabla de lotes -->
+          <q-markup-table dense flat bordered v-if="lotes.length > 0">
+            <thead class="bg-grey-2">
+              <tr>
+                <th class="text-center" style="width: 30px;">#</th>
+                <th class="text-left">Lote</th>
+                <th class="text-center">Vencimiento</th>
+                <th class="text-center">Disponible</th>
+                <th class="text-center">Stock</th>
+                <th class="text-center">Elegir</th>
+              </tr>
             </thead>
             <tbody>
-            <tr v-for="(l, i) in lotes" :key="l.id">
-              <td class="text-center">{{ i + 1 }}</td>
-              <td class="text-left">{{ l.lote || 'N/A' }}</td>
-              <td class="text-center">{{ l.fecha_vencimiento || '—' }}</td>
-              <td class="text-center">
-                <q-badge :color="getDaysColor(l.fecha_vencimiento)">
-                  {{ getDaysRemaining(l.fecha_vencimiento) }}
-                </q-badge>
-              </td>
-              <td class="text-center">
-                <q-badge :color="l.disponible > 0 ? 'green' : 'red'">
-                  {{ l.disponible }}
-                </q-badge>
-              </td>
-              <td class="text-center">
-                <q-btn
-                  size="sm"
-                  color="primary"
-                  label="Seleccionar"
-                  no-caps
-                  @click="onPickLote(l)"
-                  :disable="l.disponible <= 0"
-                />
-              </td>
-            </tr>
+              <tr v-for="(l, i) in lotes" :key="l.id" :class="loteSelected?.id === l.id ? 'bg-blue-1' : ''">
+                <td class="text-center">{{ i + 1 }}</td>
+                <td>{{ l.lote || 'N/A' }}</td>
+                <td class="text-center">{{ l.fecha_vencimiento || '—' }}</td>
+                <td class="text-center">{{ l.disponible }}</td>
+                <td class="text-center">
+                  <q-badge :color="getDaysColor(l.fecha_vencimiento)" style="font-size: 9px;">
+                    {{ getDaysRemaining(l.fecha_vencimiento) }}
+                  </q-badge>
+                </td>
+                <td class="text-center">
+                  <span
+                    v-if="l.disponible > 0"
+                    class="lote-elegir cursor-pointer"
+                    @click="onPickLote(l)"
+                  >Elegir</span>
+                  <span v-else class="text-grey-4" style="font-size: 11px;">—</span>
+                </td>
+              </tr>
             </tbody>
           </q-markup-table>
 
-          <div v-else class="text-center q-py-xl">
-            <q-icon name="inventory_2" size="48px" color="grey-5" />
-            <div class="text-h6 text-grey-6 q-mt-sm">No hay lotes disponibles</div>
+          <div v-else class="text-center q-py-md">
+            <q-icon name="inventory_2" size="40px" color="grey-4" />
+            <div class="text-grey-6 q-mt-xs">Sin lotes disponibles</div>
           </div>
 
-          <div v-if="loteSelected" class="q-mt-lg">
-            <q-card flat bordered>
-              <q-card-section>
-                <div class="text-subtitle2 q-mb-sm">
-                  Configurar cantidad y precio Lote: <b>{{loteSelected.lote}}</b>
-                </div>
-                <div class="row">
-                  <div class="col-12 col-md-4">
-                    <q-input
-                      v-model.number="loteCantidad"
-                      type="number"
-                      dense outlined
-                      label="Cantidad"
-                      :min="1"
-                      :max="Number(loteSelected.disponible || 0)"
-                      :rules="[
-                        val => val >= 1 || 'Mínimo 1',
-                        val => val <= loteSelected.disponible || `Máximo ${loteSelected.disponible}`
-                      ]"
-                    >
-                      <template #prepend>
-                        <q-icon name="numbers" />
-                      </template>
-                    </q-input>
-                    <q-input
-                      v-model.number="lotePrecio"
-                      type="number"
-                      step="0.01"
-                      dense outlined
-                      label="Precio"
-                    >
-                      <template #prepend>
-                        <q-icon name="attach_money" />
-                      </template>
-                    </q-input>
-                  </div>
-                  <div class="col-12 col-md-4 text-center">
-                    <div class="text-caption text-grey-7 q-mb-xs">Subtotal</div>
-                    <div class="text-h6 text-primary text-weight-bold">
-                      {{ formatPrice(loteCantidad * lotePrecio) }} Bs
-                    </div>
-                  </div>
-                </div>
-
-                <div class="row q-mt-md">
-                  <q-space />
-                  <q-btn
-                    label="Cancelar"
-                    color="grey"
-                    @click="loteDialog = false"
-                    no-caps
-                    class="q-mr-sm"
-                  />
-                  <q-btn
-                    color="primary"
-                    icon="add_shopping_cart"
-                    label="Agregar al carrito"
-                    no-caps
-                    @click="confirmarLote"
-                    :loading="loading"
-                  />
-                </div>
-              </q-card-section>
-            </q-card>
+          <!-- Cantidad + Agregar (cuando hay lote seleccionado) -->
+          <div v-if="loteSelected" class="row items-center q-mt-sm q-col-gutter-sm">
+            <div class="col-4">
+              <q-input
+                v-model.number="loteCantidad"
+                type="number" dense outlined
+                label="Cantidad a vender"
+                :min="1"
+                :max="loteSelected.disponible"
+              />
+            </div>
+            <div class="col-4">
+              <div class="text-caption">Lote: <b>{{ loteSelected.lote || '—' }}</b></div>
+              <div class="text-caption">Vence: <b>{{ loteSelected.fecha_vencimiento || '—' }}</b></div>
+            </div>
+            <div class="col-4">
+              <q-btn
+                color="dark"
+                icon="shopping_cart"
+                label="Agregar a venta"
+                no-caps
+                class="full-width"
+                @click="confirmarLote"
+                :loading="loading"
+              />
+            </div>
           </div>
         </q-card-section>
       </q-card>
     </q-dialog>
-    <div id="myElement" class="hidden"> </div>
+
+    <div id="myElement" class="hidden"></div>
   </q-page>
 </template>
 
@@ -654,6 +497,10 @@ export default {
       const efectivoNum = Number(this.efectivo) || 0;
       const cambio = efectivoNum - this.totalVenta;
       return cambio > 0 ? cambio : 0;
+    },
+    maxStockLote() {
+      if (!this.lotes || this.lotes.length === 0) return 0;
+      return Math.max(...this.lotes.map(l => Number(l.disponible) || 0));
     }
   },
   mounted() {
@@ -708,29 +555,10 @@ export default {
     },
     handleProductClick(producto) {
       if (producto.stock <= 0) {
-        this.$q.notify({
-          type: 'warning',
-          message: 'Producto sin stock disponible',
-          timeout: 2000
-        });
+        this.$q.notify({ type: 'warning', message: 'Producto sin stock disponible', timeout: 2000 });
         return;
       }
       this.openLoteDialog(producto);
-    },
-    removeFromCart(index) {
-      this.$q.dialog({
-        title: 'Confirmar',
-        message: '¿Eliminar producto del carrito?',
-        cancel: true,
-        persistent: true
-      }).onOk(() => {
-        this.productosVentas.splice(index, 1);
-        this.$q.notify({
-          type: 'info',
-          message: 'Producto eliminado del carrito',
-          timeout: 1500
-        });
-      });
     },
     updateSubtotal(item) {
       if (item.cantidad < 1) item.cantidad = 1;
@@ -740,66 +568,33 @@ export default {
       this.loteProducto = producto;
       this.loteDialog = true;
       this.lotes = [];
+      this.loteSelected = null;
+      this.loteCantidad = 1;
+      this.lotePrecio = Number(producto.precio) || 0;
       this.lotesLoading = true;
 
       try {
         const res = await this.$axios.get(`productos/${producto.id}/historial-compras-ventas`);
         this.lotes = res.data || [];
 
-        // Si solo hay un lote disponible, lo seleccionamos automáticamente
-        if (this.lotes.length === 1) {
-          const lote = this.lotes[0];
-          this.onPickLote(lote);
-
-          // Si el lote tiene suficiente stock, lo agregamos directamente
-          if (lote.disponible > 0) {
-            // Usar el precio del producto como predeterminado
-            this.lotePrecio = Number(producto.precio) || 0;
-            this.loteCantidad = 1;
-
-            // Podemos preguntar si quiere agregarlo directamente
-            this.$q.dialog({
-              title: 'Lote único disponible',
-              message: `¿Agregar automáticamente el producto al carrito?\nLote: ${lote.lote || 'N/A'}\nDisponible: ${lote.disponible}`,
-              cancel: true,
-              persistent: true,
-              ok: {
-                label: 'Agregar',
-                color: 'primary'
-              },
-              cancel: {
-                label: 'Cancelar',
-                color: 'grey'
-              }
-            }).onOk(() => {
-              this.confirmarLote();
-            });
-          }
+        if (this.lotes.length === 1 && this.lotes[0].disponible > 0) {
+          this.onPickLote(this.lotes[0]);
         }
       } catch (e) {
         console.error(e);
-        this.$q.notify({
-          type: 'negative',
-          message: 'No se pudieron cargar los lotes',
-          timeout: 3000
-        });
+        this.$q.notify({ type: 'negative', message: 'No se pudieron cargar los lotes', timeout: 3000 });
       } finally {
         this.lotesLoading = false;
       }
     },
     onPickLote(lote) {
       this.loteSelected = lote;
-      // Usar el precio del producto como predeterminado
       this.lotePrecio = Number(this.loteProducto?.precio) || 0;
       this.loteCantidad = 1;
     },
     confirmarLote() {
       if (!this.loteSelected) {
-        this.$q.notify({
-          type: 'warning',
-          message: 'Selecciona un lote',
-          timeout: 2000
-        });
+        this.$q.notify({ type: 'warning', message: 'Selecciona un lote', timeout: 2000 });
         return;
       }
 
@@ -808,47 +603,26 @@ export default {
       const precio = Number(this.lotePrecio || 0);
 
       if (cant <= 0) {
-        this.$q.notify({
-          type: 'negative',
-          message: 'La cantidad debe ser mayor a 0',
-          timeout: 2000
-        });
+        this.$q.notify({ type: 'negative', message: 'La cantidad debe ser mayor a 0', timeout: 2000 });
         return;
       }
-
       if (cant > disp) {
-        this.$q.notify({
-          type: 'negative',
-          message: `Cantidad excede el disponible (${disp})`,
-          timeout: 3000
-        });
+        this.$q.notify({ type: 'negative', message: `Cantidad excede el disponible (${disp})`, timeout: 3000 });
         return;
       }
-
       if (precio <= 0) {
-        this.$q.notify({
-          type: 'negative',
-          message: 'El precio debe ser mayor a 0',
-          timeout: 2000
-        });
+        this.$q.notify({ type: 'negative', message: 'El precio debe ser mayor a 0', timeout: 2000 });
         return;
       }
 
-      // Verificar si ya existe en el carrito
       const existingIndex = this.productosVentas.findIndex(
         item => item.compra_detalle_id === this.loteSelected.id
       );
 
       if (existingIndex >= 0) {
-        // Actualizar cantidad si ya existe
         this.productosVentas[existingIndex].cantidad += cant;
-        this.$q.notify({
-          type: 'info',
-          message: 'Cantidad actualizada en el carrito',
-          timeout: 2000
-        });
+        this.$q.notify({ type: 'info', message: 'Cantidad actualizada en el carrito', timeout: 2000 });
       } else {
-        // Agregar nuevo item
         this.productosVentas.push({
           producto_id: this.loteProducto.id,
           cantidad: cant,
@@ -858,16 +632,9 @@ export default {
           lote: this.loteSelected.lote,
           fecha_vencimiento: this.loteSelected.fecha_vencimiento,
         });
-
-        this.$q.notify({
-          type: 'positive',
-          message: 'Producto agregado al carrito',
-          icon: 'check',
-          timeout: 1500
-        });
+        this.$q.notify({ type: 'positive', message: 'Producto agregado al carrito', icon: 'check', timeout: 1500 });
       }
 
-      // Cerrar y limpiar
       this.loteDialog = false;
       this.loteSelected = null;
       this.loteProducto = null;
@@ -891,25 +658,14 @@ export default {
     },
     clickDialogVenta() {
       if (this.productosVentas.length === 0) {
-        this.$q.notify({
-          type: 'warning',
-          message: 'Debe agregar al menos un producto a la venta',
-          timeout: 3000
-        });
+        this.$q.notify({ type: 'warning', message: 'Debe agregar al menos un producto', timeout: 3000 });
         return;
       }
-
-      // Verificar que todos los productos tengan precio
-      const productosSinPrecio = this.productosVentas.filter(item => !item.precio || item.precio <= 0);
-      if (productosSinPrecio.length > 0) {
-        this.$q.notify({
-          type: 'negative',
-          message: 'Todos los productos deben tener un precio válido',
-          timeout: 3000
-        });
+      const sinPrecio = this.productosVentas.filter(item => !item.precio || item.precio <= 0);
+      if (sinPrecio.length > 0) {
+        this.$q.notify({ type: 'negative', message: 'Todos los productos deben tener precio válido', timeout: 3000 });
         return;
       }
-
       this.ventaDialog = true;
       this.efectivo = '';
     },
@@ -926,30 +682,20 @@ export default {
         this.pagination.rowsNumber = res.data.total;
         this.pagination.page = res.data.current_page;
 
-        // Escaneo por código de barras
         if (this.productos.length === 1 && this.productos[0].barra === this.productosSearch) {
           this.openLoteDialog(this.productos[0]);
           this.productosSearch = "";
         }
       }).catch((error) => {
         console.error(error);
-        this.$q.notify({
-          type: 'negative',
-          message: 'Error al cargar productos',
-          timeout: 3000
-        });
+        this.$q.notify({ type: 'negative', message: 'Error al cargar productos', timeout: 3000 });
       }).finally(() => {
         this.loading = false;
       });
     },
     submitVenta() {
-      // Validar cliente
       if (!this.venta.nit || this.venta.nit.trim() === '') {
-        this.$q.notify({
-          type: 'warning',
-          message: 'El CI/NIT es requerido',
-          timeout: 3000
-        });
+        this.$q.notify({ type: 'warning', message: 'El CI/NIT es requerido', timeout: 3000 });
         return;
       }
 
@@ -966,23 +712,14 @@ export default {
         receta_id: this.receta_id,
       }).then((res) => {
         this.ventaDialog = false;
-        this.$q.notify({
-          type: 'positive',
-          message: 'Venta realizada con éxito',
-          icon: 'check',
-          timeout: 3000
-        });
+        this.$q.notify({ type: 'positive', message: 'Venta realizada con éxito', icon: 'check', timeout: 3000 });
 
-        // Imprimir factura o nota según el tipo de comprobante
         if (res.data.tipo_comprobante === 'FACTURA') {
-          console.log('Imprimiendo factura...', res.data);
           Imprimir.printFactura(res.data);
         } else {
-          console.log('Imprimiendo nota de venta...', res.data);
           Imprimir.nota(res.data);
         }
 
-        // Resetear formulario
         this.productosVentas = [];
         this.venta = {
           nit: "0",
@@ -994,36 +731,23 @@ export default {
           email: ""
         };
         this.receta_id = null;
-
-        // Refrescar productos
         this.productosGet();
         this.$nextTick(() => this.$refs.inputBuscarProducto?.focus());
       }).catch((error) => {
         console.error(error);
         const errorMsg = error?.response?.data?.message || "No se pudo realizar la venta";
-        this.$q.notify({
-          type: 'negative',
-          message: errorMsg,
-          timeout: 5000
-        });
+        this.$q.notify({ type: 'negative', message: errorMsg, timeout: 5000 });
       }).finally(() => {
         this.loading = false;
       });
     },
-    calculateChange() {
-      // Esta función se llama automáticamente cuando cambia el efectivo
-      return;
-    },
+    calculateChange() {},
     startRecognition(field) {
       if (this.recognition) {
         this.activeField = field;
         this.recognition.start();
       } else {
-        this.$q.notify({
-          type: 'warning',
-          message: "El reconocimiento de voz no está disponible",
-          timeout: 3000
-        });
+        this.$q.notify({ type: 'warning', message: "El reconocimiento de voz no está disponible", timeout: 3000 });
       }
     },
   }
@@ -1031,87 +755,254 @@ export default {
 </script>
 
 <style scoped>
-.product-card {
-  transition: transform 0.15s, box-shadow 0.15s;
-  border-radius: 6px;
+/* ── Layout principal ── */
+.venta-page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
   overflow: hidden;
-  border: 1px solid #e8e8e8;
+  background: #f0f2f5;
+  padding: 0;
+}
+
+.venta-header {
+  height: 40px;
+  background: #fff;
+  border-bottom: 1px solid #e0e0e0;
+  flex-shrink: 0;
+}
+
+.venta-body {
+  flex: 1;
+  overflow: hidden;
+  gap: 6px;
+  padding: 6px;
+}
+
+/* ── Panel productos ── */
+.productos-panel {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #fff;
+  border-radius: 6px;
+  border: 1px solid #e0e0e0;
+}
+
+.productos-grid {
+  flex: 1;
+  overflow-y: auto;
+  padding: 2px 4px 4px;
+}
+
+.prod-col {
+  width: calc(100% / 6);
+  padding: 1px;
+  box-sizing: border-box;
+}
+
+/* ── Tarjeta de producto ── */
+.product-card {
+  border-radius: 3px;
+  overflow: hidden;
+  border: 1px solid #ddd;
+  transition: box-shadow 0.12s, border-color 0.12s;
 }
 
 .product-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 10px rgba(0,0,0,0.12);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.18);
   border-color: #1976d2;
 }
 
 .product-card--selected {
   border: 2px solid #1976d2;
-  background: #e3f2fd;
 }
 
 .product-card--nostock {
-  opacity: 0.65;
+  opacity: 0.55;
 }
 
-.product-name-bar {
-  background: linear-gradient(transparent, rgba(0,0,0,0.72));
-  padding: 10px 4px 2px;
+/* Barra inferior sobre la imagen */
+.prod-bar {
+  display: flex;
+  align-items: center;
+  background: rgba(0, 0, 0, 0.68);
+  padding: 1px 3px 2px;
+  gap: 3px;
+  min-height: 20px;
+}
+
+.prod-stock {
   font-size: 9px;
   font-weight: 700;
-  color: #fff;
-  line-height: 1.2;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  border-radius: 2px;
+  padding: 0 3px;
+  min-width: 16px;
+  text-align: center;
+  flex-shrink: 0;
 }
 
-.product-price {
-  font-size: 11px;
-  padding: 2px 2px 3px;
+.stock-ok {
+  background: #2e7d32;
+  color: #fff;
+}
+
+.stock-no {
+  background: #c62828;
+  color: #fff;
+}
+
+.prod-name {
+  flex: 1;
+  font-size: 9px;
+  color: #fff;
+  font-weight: 600;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.prod-price {
+  font-size: 9px;
+  color: #ffd600;
+  font-weight: 700;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ── Panel carrito ── */
+.cart-panel {
+  width: 400px;
+  min-width: 320px;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border-radius: 6px;
+  border: 1px solid #e0e0e0;
+  overflow: hidden;
+}
+
+.cart-top {
+  height: 32px;
+  background: #f5f5f5;
+  border-bottom: 1px solid #e0e0e0;
+  flex-shrink: 0;
+}
+
+.cart-scroll {
+  flex: 1;
+  overflow-y: auto;
+}
+
+/* ── Tabla del carrito ── */
+.cart-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 10px;
+}
+
+.cart-table thead tr {
+  background: #eeeeee;
+}
+
+.cart-table thead th {
+  padding: 4px 5px;
+  font-size: 10px;
+  font-weight: 600;
+  border-bottom: 1px solid #ccc;
+  white-space: nowrap;
+}
+
+.cart-table tbody td {
+  padding: 3px 4px;
+  border-bottom: 1px solid #f0f0f0;
+  vertical-align: middle;
+}
+
+.cart-row:hover {
+  background: #f9fbe7;
+}
+
+.cart-prod-name {
+  font-size: 9px;
+  line-height: 1.2;
+  word-break: break-word;
+  overflow: hidden;
+  max-height: 28px;
+}
+
+.cart-text {
+  font-size: 9px;
+  color: #555;
+}
+
+.cart-subtotal {
+  font-size: 10px;
+  font-weight: 700;
+  color: #1565c0;
+  white-space: nowrap;
+}
+
+.cart-input {
+  border: 1px solid #ddd;
+  border-radius: 3px;
+  padding: 1px 3px;
+  font-size: 10px;
+  outline: none;
+  background: #fafafa;
+}
+
+.cart-input:focus {
+  border-color: #1976d2;
   background: #fff;
 }
 
-.cart-container {
-  max-height: 400px;
+.cart-table tfoot td {
+  padding: 4px 5px;
+  border-top: 1px solid #ccc;
+  background: #f5f5f5;
 }
 
-.scrollable-container {
-  max-height: 350px;
-  overflow-y: auto;
-  padding-right: 4px;
+.cart-total-row td {
+  font-size: 11px;
+  font-weight: 600;
 }
 
-.scrollable-container::-webkit-scrollbar {
-  width: 4px;
+.cart-total-val {
+  font-size: 12px;
+  font-weight: 700;
+  color: #1565c0;
+  white-space: nowrap;
 }
 
-.scrollable-container::-webkit-scrollbar-track {
-  background: #f1f1f1;
-  border-radius: 4px;
+/* Botón eliminar fila */
+.del-btn {
+  font-size: 11px;
+  color: #c62828;
+  cursor: pointer;
+  padding: 0 2px;
+  flex-shrink: 0;
+  line-height: 1;
+  user-select: none;
 }
 
-.scrollable-container::-webkit-scrollbar-thumb {
-  background: #bbb;
-  border-radius: 4px;
+.del-btn:hover {
+  color: #b71c1c;
 }
 
-.scrollable-container::-webkit-scrollbar-thumb:hover {
-  background: #888;
+/* ── Lote dialog ── */
+.lote-elegir {
+  font-size: 12px;
+  color: #1976d2;
+  text-decoration: underline;
 }
 
-.cart-item {
-  transition: all 0.15s;
-  border-radius: 6px;
+.lote-elegir:hover {
+  color: #0d47a1;
 }
 
-.cart-item:hover {
-  background-color: #f5f7fa;
-}
-
-.item-image {
-  border: 1px solid #e0e0e0;
-}
-
+/* ── Tabla en diálogo de confirmación ── */
 .scrollable-table {
   max-height: 400px;
   overflow-y: auto;
