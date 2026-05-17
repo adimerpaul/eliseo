@@ -57,7 +57,9 @@ class ProductoController extends Controller
                 }],
                 'cantidad_venta'
             )
-            ->whereHas('ventasDetalles')
+            ->whereHas('comprasDetalles', function ($q) {
+                $q->where('estado', 'Activo')->where('cantidad_venta', '>', 0);
+            })
             ->when(count($palabrasStock) > 0, function ($q) use ($palabrasStock) {
                 foreach ($palabrasStock as $palabra) {
                     $q->where(function ($qq) use ($palabra) {
