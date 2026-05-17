@@ -105,7 +105,7 @@
                       min="0"
                       step="0.001"
                       style="width: 70px;"
-                      @input="onPrecioChange(producto)"
+                      @change="onPrecioChange(producto)"
                     />
                   </td>
 
@@ -460,9 +460,11 @@ export default {
     },
 
     onPrecioChange(row) {
+      const factor = Number(row.factor) || 1.3
+      const ingresado = Number(row.precio) || 0
+      row.precio = this.round3(ingresado / factor)
       const qty = Number(row.cantidad) || 0
-      const unit = Number(row.precio) || 0
-      row.total = this.round2(qty * unit)
+      row.total = this.round2(qty * row.precio)
       this.updatePrecioVenta(row)
     },
 
@@ -560,16 +562,18 @@ export default {
     },
 
     addProducto(producto) {
+      const factor = 1.30
+      const precio = this.round3((Number(producto.precio) || 0) / factor)
       this.productosCompras.push({
         producto_id: producto.id,
         cantidad: 1,
-        precio: '',
-        total: '',
+        precio,
+        total: this.round2(precio),
         lote: '',
         fecha_vencimiento: '',
         producto,
-        factor: 1.30,
-        precio_venta: ''
+        factor,
+        precio_venta: Number(producto.precio) || ''
       });
     },
 
