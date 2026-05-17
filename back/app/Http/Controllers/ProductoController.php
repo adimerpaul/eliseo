@@ -46,7 +46,9 @@ class ProductoController extends Controller
     function productosStock(Request $request)
     {
         $search  = trim($request->input('search', ''));
-        $perPage = (int) $request->input('per_page', 10);
+        $perPage = (int) $request->input('per_page', 36);
+
+        $palabrasStock = array_filter(explode(' ', $search));
 
         $productos = Producto::query()
             ->withSum(
@@ -55,14 +57,16 @@ class ProductoController extends Controller
                 }],
                 'cantidad_venta'
             )
-            ->when($search !== '', function ($q) use ($search) {
-                $q->where(function ($q) use ($search) {
-                    $q->where('productos.nombre', 'like', "%{$search}%")
-                        ->orWhere('productos.descripcion', 'like', "%{$search}%")
-                        ->orWhere('productos.barra', 'like', "%{$search}%");
-                });
+            ->whereHas('ventasDetalles')
+            ->when(count($palabrasStock) > 0, function ($q) use ($palabrasStock) {
+                foreach ($palabrasStock as $palabra) {
+                    $q->where(function ($qq) use ($palabra) {
+                        $qq->where('productos.nombre', 'like', "%{$palabra}%")
+                            ->orWhere('productos.descripcion', 'like', "%{$palabra}%")
+                            ->orWhere('productos.barra', 'like', "%{$palabra}%");
+                    });
+                }
             })
-            ->having('stock', '>', 0)
             ->orderBy('productos.nombre')
             ->paginate($perPage);
 
@@ -80,13 +84,17 @@ class ProductoController extends Controller
         $perPage = $request->per_page ?? 10;
         $agencia = $request->agencia;
 
+        $palabras = $search ? array_filter(explode(' ', trim($search))) : [];
+
         $productos = \App\Models\Producto::query()
-            ->when($search, function ($q) use ($search) {
-                $q->where(function ($qq) use ($search) {
-                    $qq->where('nombre', 'like', "%{$search}%")
-                        ->orWhere('descripcion', 'like', "%{$search}%")
-                        ->orWhere('barra', 'like', "%{$search}%");
-                });
+            ->when(count($palabras) > 0, function ($q) use ($palabras) {
+                foreach ($palabras as $palabra) {
+                    $q->where(function ($qq) use ($palabra) {
+                        $qq->where('nombre', 'like', "%{$palabra}%")
+                            ->orWhere('descripcion', 'like', "%{$palabra}%")
+                            ->orWhere('barra', 'like', "%{$palabra}%");
+                    });
+                }
             })
             ->withSum([
                 'comprasDetalles as stock_disponible' => function ($q) use ($agencia) {

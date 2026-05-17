@@ -53,52 +53,41 @@
               />
             </div>
 
-            <div class="row q-col-gutter-sm">
+            <div class="row q-col-gutter-xs">
               <template v-for="producto in productos" :key="producto.id">
-                <div class="col-6 col-md-4 col-lg-3">
+                <div class="col-4 col-sm-3 col-md-2">
                   <q-card
-                    class="product-card cursor-pointer shadow-1"
+                    class="product-card cursor-pointer"
                     @click="handleProductClick(producto)"
-                    :class="{'bg-blue-1': isProductInCart(producto)}"
+                    :class="{'product-card--selected': isProductInCart(producto), 'product-card--nostock': producto.stock <= 0}"
                   >
                     <div class="relative-position">
                       <q-img
                         :src="getImagenUrl(producto.imagen)"
-                        style="height: 120px;"
-                        class="product-image"
+                        style="height: 72px;"
+                        fit="cover"
                       >
                         <template v-slot:error>
-                          <div class="absolute-full flex flex-center bg-grey-3 text-grey-8">
-                            <q-icon name="image" size="32px" />
+                          <div class="absolute-full flex flex-center bg-grey-2">
+                            <q-icon name="image" size="20px" color="grey-5" />
                           </div>
                         </template>
-                        <div class="absolute-top-right q-pa-xs">
-                          <q-badge color="green" v-if="producto.stock > 0">
-                            {{ producto.stock }} disp.
-                          </q-badge>
-                          <q-badge color="red" v-else>
-                            Sin stock
+                        <div class="absolute-bottom product-name-bar">
+                          {{ $filters.textUpper(producto.nombre) }}
+                        </div>
+                        <div class="absolute-top-right" style="padding: 2px;">
+                          <q-badge
+                            :color="producto.stock > 0 ? 'green-7' : 'red-7'"
+                            style="font-size: 8px; padding: 1px 3px;"
+                          >
+                            {{ producto.stock > 0 ? producto.stock : '0' }}
                           </q-badge>
                         </div>
                       </q-img>
-
-                      <div class="absolute-bottom bg-transparent">
-                        <div class="text-caption text-center text-weight-bold text-white text-shadow q-px-xs">
-                          {{ $filters.textUpper(producto.nombre) }}
-                        </div>
-                      </div>
                     </div>
-
-                    <q-card-section class="q-pt-xs q-pb-sm">
-                      <div class="row items-center justify-between">
-                        <div class="text-caption text-grey-7">
-                          {{ producto.unidad || 'Unidad' }}
-                        </div>
-                        <div class="text-h6 text-primary text-weight-bold">
-                          {{ formatPrice(producto.precio) }} Bs
-                        </div>
-                      </div>
-                    </q-card-section>
+                    <div class="product-price text-center text-primary text-weight-bold">
+                      {{ formatPrice(producto.precio) }} Bs
+                    </div>
                   </q-card>
                 </div>
               </template>
@@ -637,7 +626,7 @@ export default {
       },
       pagination: {
         page: 1,
-        rowsPerPage: 24,
+        rowsPerPage: 36,
         rowsNumber: 0,
       },
       receta_id: null,
@@ -1042,23 +1031,44 @@ export default {
 </script>
 
 <style scoped>
-.search-input {
-  border-radius: 8px;
-}
-
 .product-card {
-  transition: transform 0.2s, box-shadow 0.2s;
-  border-radius: 8px;
+  transition: transform 0.15s, box-shadow 0.15s;
+  border-radius: 6px;
   overflow: hidden;
+  border: 1px solid #e8e8e8;
 }
 
 .product-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 6px 12px rgba(0,0,0,0.15);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 10px rgba(0,0,0,0.12);
+  border-color: #1976d2;
 }
 
-.product-image {
-  object-fit: cover;
+.product-card--selected {
+  border: 2px solid #1976d2;
+  background: #e3f2fd;
+}
+
+.product-card--nostock {
+  opacity: 0.65;
+}
+
+.product-name-bar {
+  background: linear-gradient(transparent, rgba(0,0,0,0.72));
+  padding: 10px 4px 2px;
+  font-size: 9px;
+  font-weight: 700;
+  color: #fff;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.product-price {
+  font-size: 11px;
+  padding: 2px 2px 3px;
+  background: #fff;
 }
 
 .cart-container {
@@ -1072,7 +1082,7 @@ export default {
 }
 
 .scrollable-container::-webkit-scrollbar {
-  width: 6px;
+  width: 4px;
 }
 
 .scrollable-container::-webkit-scrollbar-track {
@@ -1081,29 +1091,25 @@ export default {
 }
 
 .scrollable-container::-webkit-scrollbar-thumb {
-  background: #888;
+  background: #bbb;
   border-radius: 4px;
 }
 
 .scrollable-container::-webkit-scrollbar-thumb:hover {
-  background: #555;
+  background: #888;
 }
 
 .cart-item {
-  transition: all 0.2s;
+  transition: all 0.15s;
   border-radius: 6px;
 }
 
 .cart-item:hover {
-  background-color: #f8f9fa;
+  background-color: #f5f7fa;
 }
 
 .item-image {
   border: 1px solid #e0e0e0;
-}
-
-.text-shadow {
-  text-shadow: 1px 1px 2px rgba(0,0,0,0.7);
 }
 
 .scrollable-table {
