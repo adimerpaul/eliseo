@@ -380,18 +380,22 @@ class ImpuestoController extends Controller{
 
             $cliente = $venta->cliente;
             if ($cliente && $cliente->email && $cliente->email != '') {
-                Mail::to($cliente->email)->queue(new TestMail([
-                    "title" => "Factura",
-                    "body" => "Gracias por su compra",
-                    "online" => true,
-                    "anulado" => false,
-                    "cuf" => $venta->cuf,
-                    "numeroFactura" => $venta->id,
-                    "sale_id" => $venta->id,
-                    "carpeta" => "archivos",
-                    "total" => $venta->total,
-                    "fecha" => $venta->fecha . ' ' . $venta->hora,
-                ]));
+                try {
+                    Mail::to($cliente->email)->send(new TestMail([
+                        "title" => "Factura",
+                        "body" => "Gracias por su compra",
+                        "online" => true,
+                        "anulado" => false,
+                        "cuf" => $venta->cuf,
+                        "numeroFactura" => $venta->id,
+                        "sale_id" => $venta->id,
+                        "carpeta" => "archivos",
+                        "total" => $venta->total,
+                        "fecha" => $venta->fecha . ' ' . $venta->hora,
+                    ]));
+                } catch (\Exception $e) {
+                    error_log('Error al enviar correo de factura: ' . $e->getMessage());
+                }
             }
 
             return response()->json([

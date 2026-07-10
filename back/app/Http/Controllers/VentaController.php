@@ -102,7 +102,11 @@ class VentaController extends Controller{
                     "total" => $venta->total,
                     "fecha" => $venta->fecha . ' ' . $venta->hora,
                 ];
-                Mail::to($client->email)->queue(new TestMail($details));
+                try {
+                    Mail::to($client->email)->send(new TestMail($details));
+                } catch (\Exception $e) {
+                    error_log('Error al enviar correo de anulación: ' . $e->getMessage());
+                }
             }
 
             return response()->json([
@@ -471,20 +475,24 @@ class VentaController extends Controller{
                     $venta->tipo_comprobante = 'FACTURA';
                     $venta->save();
 
-                    // Enviar correo con queue (asíncrono)
+                    // Enviar correo directo (sin cola, para no depender del worker)
                     if ($cliente->email && $cliente->email != '') {
-                        Mail::to($cliente->email)->queue(new TestMail([
-                            "title" => "Factura",
-                            "body" => "Gracias por su compra",
-                            "online" => true,
-                            "anulado" => false,
-                            "cuf" => $cuf,
-                            "numeroFactura" => $numeroFactura,
-                            "sale_id" => $venta->id,
-                            "carpeta" => "archivos",
-                            "total" => $montoTotalFactura,
-                            "fecha" => $venta->fecha . ' ' . $venta->hora,
-                        ]));
+                        try {
+                            Mail::to($cliente->email)->send(new TestMail([
+                                "title" => "Factura",
+                                "body" => "Gracias por su compra",
+                                "online" => true,
+                                "anulado" => false,
+                                "cuf" => $cuf,
+                                "numeroFactura" => $numeroFactura,
+                                "sale_id" => $venta->id,
+                                "carpeta" => "archivos",
+                                "total" => $montoTotalFactura,
+                                "fecha" => $venta->fecha . ' ' . $venta->hora,
+                            ]));
+                        } catch (\Exception $e) {
+                            error_log('Error al enviar correo de factura: ' . $e->getMessage());
+                        }
                     }
                 }
             } catch (\Exception $e) {
@@ -497,18 +505,22 @@ class VentaController extends Controller{
                 $venta->save();
 
                 if ($cliente->email && $cliente->email != '') {
-                    Mail::to($cliente->email)->queue(new TestMail([
-                        "title" => "Factura",
-                        "body" => "Gracias por su compra",
-                        "online" => false,
-                        "anulado" => false,
-                        "cuf" => $cuf,
-                        "numeroFactura" => $numeroFactura,
-                        "sale_id" => $venta->id,
-                        "carpeta" => "archivos",
-                        "total" => $montoTotalFactura,
-                        "fecha" => $venta->fecha . ' ' . $venta->hora,
-                    ]));
+                    try {
+                        Mail::to($cliente->email)->send(new TestMail([
+                            "title" => "Factura",
+                            "body" => "Gracias por su compra",
+                            "online" => false,
+                            "anulado" => false,
+                            "cuf" => $cuf,
+                            "numeroFactura" => $numeroFactura,
+                            "sale_id" => $venta->id,
+                            "carpeta" => "archivos",
+                            "total" => $montoTotalFactura,
+                            "fecha" => $venta->fecha . ' ' . $venta->hora,
+                        ]));
+                    } catch (\Exception $e) {
+                        error_log('Error al enviar correo de factura: ' . $e->getMessage());
+                    }
                 }
             }
             return response()->json(
