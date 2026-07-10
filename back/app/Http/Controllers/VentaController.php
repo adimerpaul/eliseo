@@ -77,8 +77,10 @@ class VentaController extends Controller{
                         abort(422, 'No fue posible restaurar completamente el stock por lotes.');
                     }
                 }
+            }
 
-                #5 anular en impuesto
+            #5 anular en impuesto (solo si fue facturada con CUF)
+            if (!empty($venta->cuf)) {
                 $Impuestos = new ImpuestoController();
                 $Impuestos->anularImpuestos($venta->cuf);
             }
@@ -87,7 +89,7 @@ class VentaController extends Controller{
             $venta->save();
 
             $client = Cliente::find($venta->cliente_id);
-            if ($client->email != '') {
+            if ($client && $client->email != '') {
                 $details = [
                     "title" => "Factura",
                     "body" => "Factura anulada",
@@ -97,8 +99,10 @@ class VentaController extends Controller{
                     "numeroFactura" => $venta->id,
                     "sale_id" => $venta->id,
                     "carpeta" => "archivos",
+                    "total" => $venta->total,
+                    "fecha" => $venta->fecha . ' ' . $venta->hora,
                 ];
-                Mail::to($client->email)->send(new TestMail($details));
+                Mail::to($client->email)->queue(new TestMail($details));
             }
 
             return response()->json([
@@ -305,7 +309,10 @@ class VentaController extends Controller{
             $detalles = $venta->ventaDetalles;
 
             $detalleFactura = '';
+            $montoTotalFactura = 0.0;
             foreach ($detalles as $detalle) {
+                $subTotalDetalle = round((float)$detalle->precio * (float)$detalle->cantidad, 2);
+                $montoTotalFactura += $subTotalDetalle;
                 $detalleFactura .= "<detalle>
                 <actividadEconomica>4772100</actividadEconomica>
                 <codigoProductoSin>1003655</codigoProductoSin>
@@ -315,11 +322,12 @@ class VentaController extends Controller{
                 <unidadMedida>62</unidadMedida>
                 <precioUnitario>" . $detalle->precio . "</precioUnitario>
                 <montoDescuento>0</montoDescuento>
-                <subTotal>" . $detalle->precio * $detalle->cantidad . "</subTotal>
+                <subTotal>" . number_format($subTotalDetalle, 2, '.', '') . "</subTotal>
                 <numeroSerie xsi:nil='true'/>
                 <numeroImei xsi:nil='true'/>
             </detalle>";
             }
+            $montoTotalFactura = number_format(round($montoTotalFactura, 2), 2, '.', '');
 
             $token = env('TOKEN');
             $nit = env('NIT');
@@ -369,11 +377,11 @@ class VentaController extends Controller{
         <codigoCliente>" . $cliente->id . "</codigoCliente>
         <codigoMetodoPago>1</codigoMetodoPago>
         <numeroTarjeta xsi:nil='true'/>
-        <montoTotal>" . $venta->total . "</montoTotal>
-        <montoTotalSujetoIva>" . $venta->total . "</montoTotalSujetoIva>
+        <montoTotal>" . $montoTotalFactura . "</montoTotal>
+        <montoTotalSujetoIva>" . $montoTotalFactura . "</montoTotalSujetoIva>
         <codigoMoneda>1</codigoMoneda>
         <tipoCambio>1</tipoCambio>
-        <montoTotalMoneda>" . $venta->total . "</montoTotalMoneda>
+        <montoTotalMoneda>" . $montoTotalFactura . "</montoTotalMoneda>
         <montoGiftCard xsi:nil='true'/>
         <descuentoAdicional>0</descuentoAdicional>
         <codigoExcepcion>" . ($cliente->codigoTipoDocumentoIdentidad == 5 ? 1 : 0) . "</codigoExcepcion>
@@ -392,20 +400,23 @@ class VentaController extends Controller{
             $dom->formatOutput = true;
             $dom->loadXML($xml->asXML());
             $nameFile = $venta->id;
-            $dom->save("archivos/" . $nameFile . '.xml');
+            if (!is_dir(public_path('archivos'))) {
+                mkdir(public_path('archivos'), 0777, true);
+            }
+            $dom->save(public_path("archivos/" . $nameFile . '.xml'));
 
-            $file = "archivos/".$nameFile.'.xml';
-            $gzfile = "archivos/".$nameFile.'.xml'.'.gz';
+            $file = public_path("archivos/".$nameFile.'.xml');
+            $gzfile = public_path("archivos/".$nameFile.'.xml'.'.gz');
             $fp = gzopen ($gzfile, 'w9');
             gzwrite ($fp, file_get_contents($file));
             gzclose($fp);
 
-            $archivo=$this->getFileGzip("archivos/".$nameFile.'.xml'.'.gz');
+            $archivo=$this->getFileGzip($gzfile);
             $hashArchivo = hash('sha256', $archivo);
 
             try {
                 $url=env('URL_SIAT');
-                $client = new \SoapClient("${url}ServicioFacturacionCompraVenta?WSDL", [
+                $client = new \SoapClient("{$url}ServicioFacturacionCompraVentaXXX?WSDL", [
                     'stream_context' => stream_context_create([
                         'http' => [
                             'header'  => "apikey: TokenApi " . $token,
@@ -471,6 +482,8 @@ class VentaController extends Controller{
                             "numeroFactura" => $numeroFactura,
                             "sale_id" => $venta->id,
                             "carpeta" => "archivos",
+                            "total" => $montoTotalFactura,
+                            "fecha" => $venta->fecha . ' ' . $venta->hora,
                         ]));
                     }
                 }
@@ -493,6 +506,8 @@ class VentaController extends Controller{
                         "numeroFactura" => $numeroFactura,
                         "sale_id" => $venta->id,
                         "carpeta" => "archivos",
+                        "total" => $montoTotalFactura,
+                        "fecha" => $venta->fecha . ' ' . $venta->hora,
                     ]));
                 }
             }

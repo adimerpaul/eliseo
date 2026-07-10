@@ -1,0 +1,104 @@
+<?php
+
+namespace App\Services;
+
+use SoapClient;
+
+class SiatCodeService
+{
+    public function solicitarCuis(array $payload): array
+    {
+        $result = $this->client('FacturacionCodigos')->cuis([
+            'SolicitudCuis' => $payload,
+        ]);
+
+        return $this->normalize($result);
+    }
+
+    public function recepcionFactura(array $payload): array
+    {
+        $result = $this->client('ServicioFacturacionCompraVenta')->recepcionFactura([
+            'SolicitudServicioRecepcionFactura' => $payload,
+        ]);
+
+        return $this->normalize($result);
+    }
+
+    public function anulacionFactura(array $payload): array
+    {
+        $result = $this->client('ServicioFacturacionCompraVenta')->anulacionFactura([
+            'SolicitudServicioAnulacionFactura' => $payload,
+        ]);
+
+        return $this->normalize($result);
+    }
+
+    public function reversionAnulacion(array $payload): array
+    {
+        $result = $this->client('ServicioFacturacionCompraVenta')->reversionAnulacionFactura([
+            'SolicitudServicioReversionAnulacionFactura' => $payload,
+        ]);
+
+        return $this->normalize($result);
+    }
+
+    public function solicitarCufd(array $payload): array
+    {
+        $result = $this->client('FacturacionCodigos')->cufd([
+            'SolicitudCufd' => $payload,
+        ]);
+
+        return $this->normalize($result);
+    }
+
+    public function registroEventoSignificativo(array $payload): array
+    {
+        $result = $this->client('FacturacionOperaciones')->registroEventoSignificativo([
+            'SolicitudEventoSignificativo' => $payload,
+        ]);
+
+        return $this->normalize($result);
+    }
+
+    public function recepcionPaqueteFactura(array $payload): array
+    {
+        $result = $this->client('ServicioFacturacionCompraVenta')->recepcionPaqueteFactura([
+            'SolicitudServicioRecepcionPaquete' => $payload,
+        ]);
+
+        return $this->normalize($result);
+    }
+
+    public function validacionRecepcionPaqueteFactura(array $payload): array
+    {
+        $result = $this->client('ServicioFacturacionCompraVenta')->validacionRecepcionPaqueteFactura([
+            'SolicitudServicioValidacionRecepcionPaquete' => $payload,
+        ]);
+
+        return $this->normalize($result);
+    }
+
+    private function client(string $service): SoapClient
+    {
+        $baseUrl = rtrim((string) config('siat.url_rest'), '/');
+        $wsdl = $baseUrl . '/' . $service . '?WSDL';
+
+        return new SoapClient($wsdl, [
+            'stream_context' => stream_context_create([
+                'http' => [
+                    'header' => 'apikey: TokenApi ' . config('siat.token'),
+                ],
+            ]),
+            'cache_wsdl' => WSDL_CACHE_NONE,
+            'compression' => SOAP_COMPRESSION_ACCEPT | SOAP_COMPRESSION_GZIP | SOAP_COMPRESSION_DEFLATE,
+            'trace' => 1,
+            'use' => SOAP_LITERAL,
+            'style' => SOAP_DOCUMENT,
+        ]);
+    }
+
+    private function normalize(mixed $result): array
+    {
+        return json_decode(json_encode($result), true) ?: [];
+    }
+}

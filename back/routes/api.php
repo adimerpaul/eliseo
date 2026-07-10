@@ -30,6 +30,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/productos/{producto}', [App\Http\Controllers\ProductoController::class, 'update']);
     Route::delete('/productos/{producto}', [App\Http\Controllers\ProductoController::class, 'destroy']);
     Route::delete('/productos/{producto}/imagen', [App\Http\Controllers\ProductoController::class, 'eliminarImagen']);
+    Route::post('/productos/{producto}/imagen', [App\Http\Controllers\ProductoController::class, 'actualizarImagen']);
 
     Route::post('/searchCliente', [App\Http\Controllers\ClienteController::class, 'searchCliente']);
 
@@ -62,6 +63,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/verificarImpuestos/{cuf}', [App\Http\Controllers\ImpuestoController::class, 'verificarImpuestos']);
     Route::post('/eventoSignificativo', [App\Http\Controllers\ImpuestoController::class, 'eventoSignificativo']);
     Route::post('/validarPaquete', [App\Http\Controllers\ImpuestoController::class, 'validarPaquete']);
+    Route::post('/enviarPaquete', [App\Http\Controllers\ImpuestoController::class, 'enviarPaquete']);
 });
 
 //Route test

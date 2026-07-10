@@ -183,6 +183,21 @@ class ProductoController extends Controller
     }
 
 
+    public function actualizarImagen(Request $request, Producto $producto)
+    {
+        $request->validate([
+            'imagen' => 'required|image|mimes:jpeg,png,jpg,gif,webp|max:2048',
+        ]);
+
+        if ($producto->imagen && file_exists(public_path('images/' . $producto->imagen))) {
+            unlink(public_path('images/' . $producto->imagen));
+        }
+
+        $producto->update(['imagen' => $this->guardarImagen($request->file('imagen'))]);
+
+        return response()->json($producto);
+    }
+
     private function guardarImagen($imagen)
     {
         // Crear directorio si no existe en public/images/productos

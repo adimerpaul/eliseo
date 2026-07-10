@@ -2,11 +2,13 @@
 
 namespace App\Http\Controllers;
 
+use App\Mail\TestMail;
 use App\Models\Cufd;
 use App\Models\Cui;
 use App\Models\EventoSignificativo;
 use App\Models\Venta;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Mail;
 use Phar;
 use PharData;
 //use SoapClient;
@@ -198,6 +200,212 @@ class ImpuestoController extends Controller{
         $eventoSignificativo->save();
 
     }
+    /**
+     * Flujo completo para factura fuera de línea, en un solo paso (como el proyecto ejemplo):
+     * registrar evento significativo → empaquetar XML → recepcionPaqueteFactura →
+     * polling validacionRecepcionPaqueteFactura → marcar venta online → enviar correo.
+     */
+    public function enviarPaquete(Request $request){
+        set_time_limit(180);
+
+        $venta = Venta::with('cliente')->findOrFail($request->venta_id);
+        if ($venta->online) {
+            return response()->json(['message' => 'La venta ya está registrada en línea en SIAT.'], 400);
+        }
+        if (empty($venta->cuf)) {
+            return response()->json(['message' => 'La venta no tiene CUF (no fue emitida como factura).'], 400);
+        }
+
+        $xmlPath = public_path('archivos/' . $venta->id . '.xml');
+        if (!file_exists($xmlPath)) {
+            return response()->json(['message' => 'No se encontró el XML de la factura (archivos/' . $venta->id . '.xml).'], 400);
+        }
+
+        $codigoPuntoVenta = 0;
+        $codigoSucursal   = 0;
+
+        $cui = Cui::where('codigoPuntoVenta', $codigoPuntoVenta)->where('codigoSucursal', $codigoSucursal)->where('fechaVigencia', '>=', now())->first();
+        if (!$cui) {
+            return response()->json(['message' => 'No existe CUI vigente!!'], 400);
+        }
+        $cufd = Cufd::where('codigoPuntoVenta', $codigoPuntoVenta)->where('codigoSucursal', $codigoSucursal)->where('fechaVigencia', '>=', now())->first();
+        if (!$cufd) {
+            return response()->json(['message' => 'No existe CUFD vigente!!'], 400);
+        }
+
+        $soapOptions = [
+            'stream_context' => stream_context_create([
+                'http' => [
+                    'header' => "apikey: TokenApi " . env('TOKEN'),
+                ]
+            ]),
+            'cache_wsdl' => WSDL_CACHE_NONE,
+            'compression' => SOAP_COMPRESSION_ACCEPT | SOAP_COMPRESSION_GZIP | SOAP_COMPRESSION_DEFLATE,
+            'trace' => 1,
+            'use' => SOAP_LITERAL,
+            'style' => SOAP_DOCUMENT,
+        ];
+
+        $tarPath = public_path('archivos/paquete_' . $venta->id . '.tar');
+        $gzPath  = $tarPath . '.gz';
+
+        try {
+            // 1) Evento significativo (reutilizar si ya existe uno que cubra la fecha/hora de la venta)
+            $fechaHoraVenta = date('Y-m-d H:i:s', strtotime($venta->fecha . ' ' . $venta->hora));
+            $evento = EventoSignificativo::where('codigoPuntoVenta', $codigoPuntoVenta)
+                ->where('codigoSucursal', $codigoSucursal)
+                ->where('fechaHoraInicioEvento', '<=', $fechaHoraVenta)
+                ->where('fechaHoraFinEvento', '>=', $fechaHoraVenta)
+                ->first();
+
+            if (!$evento) {
+                $codigoMotivoEvento = $request->codigoMotivoEvento ?? 2;
+                $descripcion = $request->descripcion ?? 'INACCESIBILIDAD AL SERVICIO WEB DE LA ADMINISTRACION TRIBUTARIA';
+
+                $fechaInicio = date('Y-m-d\TH:i:s.000', strtotime($fechaHoraVenta . ' -1 second'));
+                $fechaFin    = date('Y-m-d\TH:i:s.000', strtotime($fechaHoraVenta . ' +1 second'));
+
+                $clientOperaciones = new \SoapClient(env('URL_SIAT') . "FacturacionOperaciones?WSDL", $soapOptions);
+                $result = $clientOperaciones->registroEventoSignificativo([
+                    "SolicitudEventoSignificativo" => [
+                        "codigoAmbiente" => env('AMBIENTE'),
+                        "codigoMotivoEvento" => $codigoMotivoEvento,
+                        "codigoPuntoVenta" => $codigoPuntoVenta,
+                        "codigoSistema" => env('CODIGO_SISTEMA'),
+                        "codigoSucursal" => $codigoSucursal,
+                        "cufd" => $cufd->codigo,
+                        "cufdEvento" => $venta->cufd,
+                        "cuis" => $cui->codigo,
+                        "descripcion" => $descripcion,
+                        "fechaHoraFinEvento" => $fechaFin,
+                        "fechaHoraInicioEvento" => $fechaInicio,
+                        "nit" => env('NIT'),
+                    ]
+                ]);
+                error_log("enviarPaquete[{$venta->id}] evento: " . json_encode($result));
+
+                if (empty($result->RespuestaListaEventos->transaccion)) {
+                    return response()->json(['message' => 'SIAT rechazó el evento significativo: ' . json_encode($result->RespuestaListaEventos->mensajesList ?? $result)], 500);
+                }
+
+                $evento = new EventoSignificativo();
+                $evento->codigoPuntoVenta = $codigoPuntoVenta;
+                $evento->codigoSucursal = $codigoSucursal;
+                $evento->fechaHoraInicioEvento = date('Y-m-d H:i:s', strtotime($fechaHoraVenta . ' -1 second'));
+                $evento->fechaHoraFinEvento = date('Y-m-d H:i:s', strtotime($fechaHoraVenta . ' +1 second'));
+                $evento->codigoMotivoEvento = $codigoMotivoEvento;
+                $evento->descripcion = $descripcion;
+                $evento->cufd = $cufd->codigo;
+                $evento->cufdEvento = $venta->cufd;
+                $evento->cufd_id = $cufd->id;
+                $evento->codigoRecepcionEventoSignificativo = $result->RespuestaListaEventos->codigoRecepcionEventoSignificativo;
+                $evento->save();
+            }
+
+            // 2) Empaquetar el XML en tar.gz
+            @unlink($tarPath);
+            @unlink($gzPath);
+            $phar = new PharData($tarPath);
+            $phar->addFile($xmlPath, $venta->id . '.xml');
+            $phar->compress(Phar::GZ);
+            $archivo = file_get_contents($gzPath);
+            $hashArchivo = hash('sha256', $archivo);
+
+            // 3) Enviar paquete
+            $client = new \SoapClient(env('URL_SIAT') . "ServicioFacturacionCompraVenta?WSDL", $soapOptions);
+            $result = $client->recepcionPaqueteFactura([
+                "SolicitudServicioRecepcionPaquete" => [
+                    "codigoAmbiente" => env('AMBIENTE'),
+                    "codigoDocumentoSector" => 1,
+                    "codigoEmision" => 2,
+                    "codigoModalidad" => env('MODALIDAD'),
+                    "codigoPuntoVenta" => $codigoPuntoVenta,
+                    "codigoSistema" => env('CODIGO_SISTEMA'),
+                    "codigoSucursal" => $codigoSucursal,
+                    "cufd" => $cufd->codigo,
+                    "cuis" => $cui->codigo,
+                    "nit" => env('NIT'),
+                    "tipoFacturaDocumento" => 1,
+                    "archivo" => $archivo,
+                    "fechaEnvio" => date('Y-m-d\TH:i:s.000'),
+                    "hashArchivo" => $hashArchivo,
+                    "cantidadFacturas" => 1,
+                    "codigoEvento" => $evento->codigoRecepcionEventoSignificativo,
+                ]
+            ]);
+            error_log("enviarPaquete[{$venta->id}] recepcion: " . json_encode($result));
+
+            $codigoRecepcion = $result->RespuestaServicioFacturacion->codigoRecepcion ?? null;
+            if (!$codigoRecepcion) {
+                return response()->json(['message' => 'SIAT no devolvió código de recepción: ' . json_encode($result->RespuestaServicioFacturacion->mensajesList ?? $result)], 500);
+            }
+            $evento->codigoRecepcion = $codigoRecepcion;
+            $evento->save();
+
+            // 4) Polling de validación (máx. 10 intentos, 1 s de pausa)
+            $validado = false;
+            $ultimaRespuesta = null;
+            for ($i = 0; $i < 10 && !$validado; $i++) {
+                sleep(1);
+                $val = $client->validacionRecepcionPaqueteFactura([
+                    "SolicitudServicioValidacionRecepcionPaquete" => [
+                        "codigoAmbiente" => env('AMBIENTE'),
+                        "codigoDocumentoSector" => 1,
+                        "codigoEmision" => 2,
+                        "codigoModalidad" => env('MODALIDAD'),
+                        "codigoPuntoVenta" => $codigoPuntoVenta,
+                        "codigoSistema" => env('CODIGO_SISTEMA'),
+                        "codigoSucursal" => $codigoSucursal,
+                        "cufd" => $cufd->codigo,
+                        "cuis" => $cui->codigo,
+                        "nit" => env('NIT'),
+                        "tipoFacturaDocumento" => 1,
+                        "codigoRecepcion" => $codigoRecepcion,
+                    ]
+                ]);
+                $ultimaRespuesta = $val;
+                error_log("enviarPaquete[{$venta->id}] validacion intento {$i}: " . json_encode($val));
+                if (($val->RespuestaServicioFacturacion->codigoDescripcion ?? '') === 'VALIDADA') {
+                    $validado = true;
+                }
+            }
+
+            if (!$validado) {
+                return response()->json(['message' => 'SIAT no validó el paquete: ' . json_encode($ultimaRespuesta->RespuestaServicioFacturacion->mensajesList ?? $ultimaRespuesta)], 500);
+            }
+
+            // 5) Marcar la venta como en línea y enviar el correo al cliente
+            $venta->online = true;
+            $venta->save();
+
+            $cliente = $venta->cliente;
+            if ($cliente && $cliente->email && $cliente->email != '') {
+                Mail::to($cliente->email)->queue(new TestMail([
+                    "title" => "Factura",
+                    "body" => "Gracias por su compra",
+                    "online" => true,
+                    "anulado" => false,
+                    "cuf" => $venta->cuf,
+                    "numeroFactura" => $venta->id,
+                    "sale_id" => $venta->id,
+                    "carpeta" => "archivos",
+                    "total" => $venta->total,
+                    "fecha" => $venta->fecha . ' ' . $venta->hora,
+                ]));
+            }
+
+            return response()->json([
+                'message' => 'Factura enviada y validada en SIAT correctamente.' . (($cliente && $cliente->email) ? ' Correo enviado al cliente.' : ''),
+                'venta' => $venta,
+            ]);
+        } catch (\Exception $e) {
+            return response()->json(['message' => $e->getMessage()], 500);
+        } finally {
+            @unlink($tarPath);
+            @unlink($gzPath);
+        }
+    }
+
     public function validarPaquete(Request $request){
         try {
             $codigoPuntoVenta=0;

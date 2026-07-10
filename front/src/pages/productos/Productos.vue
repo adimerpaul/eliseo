@@ -65,25 +65,36 @@
                 </q-list>
               </q-btn-dropdown>
             </td>
-            <td>
-              <div class="text-center">
-                <q-img
-                  v-if="producto.imagen"
-                  :src="getImagenUrl(producto.imagen)"
-                  style="width: 60px; height: 60px; border-radius: 4px; cursor: pointer;"
-                  class="q-mr-sm"
-                  @click="verImagenAmpliada(producto.imagen)"
-                >
-                  <template v-slot:error>
-                    <div class="absolute-full flex flex-center bg-grey-3 text-grey-8">
-                      <q-icon name="image" size="24px" />
-                    </div>
-                  </template>
-                </q-img>
-                <div v-else class="text-grey-6">
-                  <q-icon name="image" size="24px" />
-                  <div class="text-caption">Sin imagen</div>
-                </div>
+            <td
+              @dragover.prevent="draggingOverId = producto.id"
+              @dragleave="draggingOverId = null"
+              @drop.prevent="onImageDrop($event, producto)"
+              :style="{
+                background: draggingOverId === producto.id ? '#e3f2fd' : '',
+                outline: draggingOverId === producto.id ? '2px dashed #1976d2' : '',
+                transition: 'background 0.15s, outline 0.15s',
+                borderRadius: '4px'
+              }"
+            >
+              <div class="text-center" style="min-width: 64px; min-height: 64px; display:flex; align-items:center; justify-content:center;">
+                <q-spinner v-if="uploadingImageId === producto.id" color="primary" size="40px" />
+                <template v-else>
+                  <q-img
+                    v-if="producto.imagen"
+                    :src="getImagenUrl(producto.imagen)"
+                    style="width: 60px; height: 60px; border-radius: 4px; cursor: pointer;"
+                    @click="verImagenAmpliada(producto.imagen)"
+                  >
+                    <template v-slot:error>
+                      <div class="absolute-full flex flex-center bg-grey-3 text-grey-8">
+                        <q-icon name="image" size="24px" />
+                      </div>
+                    </template>
+                  </q-img>
+                  <div v-else class="text-grey-5" style="font-size:11px; text-align:center;">
+                    <q-icon name="image" size="24px" /><br>arrastra imagen
+                  </div>
+                </template>
               </div>
             </td>
             <td>
@@ -325,6 +336,8 @@ export default {
       imagenDialog: false,
       imagenAmpliadaUrl: '',
       imagenError: false,
+      draggingOverId: null,
+      uploadingImageId: null,
     }
   },
   mounted() {
@@ -333,6 +346,29 @@ export default {
     this.debouncedCambioBarra = debounce(this.cambioBarra, 500)
   },
   methods: {
+    async onImageDrop(event, producto) {
+      this.draggingOverId = null
+      const file = event.dataTransfer.files[0]
+      if (!file || !file.type.startsWith('image/')) {
+        this.$alert.error('Solo se aceptan archivos de imagen')
+        return
+      }
+      this.uploadingImageId = producto.id
+      const formData = new FormData()
+      formData.append('imagen', file)
+      try {
+        const res = await this.$axios.post(`productos/${producto.id}/imagen`, formData, {
+          headers: { 'Content-Type': 'multipart/form-data' }
+        })
+        producto.imagen = res.data.imagen
+        this.$alert.success('Imagen actualizada')
+      } catch (error) {
+        this.$alert.error(error.response?.data?.message || 'Error al subir imagen')
+      } finally {
+        this.uploadingImageId = null
+      }
+    },
+
     getImagenUrl(imagenNombre) {
       return `${this.$url}../images/${imagenNombre}`;
     },

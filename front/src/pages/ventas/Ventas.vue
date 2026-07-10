@@ -126,18 +126,11 @@
                 </q-item-section>
                 <q-item-section>Anular</q-item-section>
               </q-item>
-              <q-item clickable v-ripple @click="dialogEventoClick(venta)" v-close-popup v-if="!venta.online">
+              <q-item clickable v-ripple @click="dialogEventoClick(venta)" v-close-popup v-if="!venta.online && venta.cuf && venta.estado === 'Activo'">
                 <q-item-section avatar>
-                  <q-icon name="event" />
+                  <q-icon name="cloud_upload" />
                 </q-item-section>
-                <q-item-section>Evento significativo</q-item-section>
-              </q-item>
-<!--              validarPaquete-->
-              <q-item clickable v-ripple @click="validarPaquete(venta)" v-close-popup v-if="!venta.online">
-                <q-item-section avatar>
-                  <q-icon name="verified" />
-                </q-item-section>
-                <q-item-section>Validar paquete</q-item-section>
+                <q-item-section>Enviar a SIAT (paquete)</q-item-section>
               </q-item>
 <!--              <q-item clickable v-ripple @click="tipoVentasChange(venta.id)" v-close-popup>-->
 <!--                <q-item-section avatar>-->
@@ -186,7 +179,11 @@
   <q-dialog v-model="dialogEvento" persistent>
     <q-card>
       <q-card-section>
-        <div class="text-h6">Seleccionar motivo del evento significativo</div>
+        <div class="text-h6">Enviar factura fuera de línea a SIAT</div>
+        <div class="text-caption text-grey-8">
+          Se registrará el evento significativo, se enviará el paquete, se validará
+          y se enviará el correo al cliente, todo en un solo paso.
+        </div>
       </q-card-section>
 
       <q-card-section>
@@ -204,29 +201,15 @@
       </q-card-section>
 
       <q-card-actions align="right">
-        <q-btn flat label="Cancelar" color="primary" v-close-popup />
+        <q-btn flat label="Cancelar" color="primary" v-close-popup :disable="loading" />
         <q-btn
           flat
-          label="Guardar"
+          label="Enviar"
           color="primary"
+          icon="cloud_upload"
           :loading="loading"
           :disabled="!codigoMotivoEvento"
-          @click="() => {
-            this.loading=true
-            $axios.post('eventoSignificativo', {
-              venta_id: venta.id,
-              codigoMotivoEvento: codigoMotivoEvento,
-              descripcion: eventos.find(e => e.value === codigoMotivoEvento).label
-            }).then(res => {
-              $alert.success('Evento significativo registrado')
-              dialogEvento = false
-              ventasGet()
-            }).catch(error => {
-              $alert.error(error.response.data.message)
-            }).finally(() => {
-              loading = false
-            })
-          }"
+          @click="enviarPaquete()"
         />
       </q-card-actions>
     </q-card>
@@ -347,21 +330,18 @@ export default {
         this.loading = false
       })
     },
-    validarPaquete(venta) {
+    enviarPaquete() {
       this.loading = true
-      this.$axios.post(`validarPaquete`,{
-        venta_id: venta.id
+      this.$axios.post('enviarPaquete', {
+        venta_id: this.venta.id,
+        codigoMotivoEvento: this.codigoMotivoEvento,
+        descripcion: this.eventos.find(e => e.value === this.codigoMotivoEvento).label
       }).then(res => {
-        this.$q.dialog({
-          title: 'Validación de paquete',
-          fullWidth: true,
-          message: '<pre>' + JSON.stringify(res.data, null, 2) + '</pre>',
-          html: true,
-          ok: true
-        })
+        this.$alert.success(res.data.message || 'Factura enviada y validada en SIAT correctamente')
+        this.dialogEvento = false
         this.ventasGet()
       }).catch(error => {
-        this.$alert.error(error.response.data.message)
+        this.$alert.error(error.response?.data?.message || 'Error al enviar el paquete')
       }).finally(() => {
         this.loading = false
       })
@@ -369,7 +349,7 @@ export default {
     dialogEventoClick(venta) {
       this.dialogEvento = true
       this.venta = venta
-      this.codigoMotivoEvento = null
+      this.codigoMotivoEvento = 2
     },
     anular(id) {
       this.$alert.dialog('¿Está seguro de anular la venta?').onOk(() => {

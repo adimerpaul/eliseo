@@ -38,11 +38,10 @@ class TestMail extends Mailable
             $datos['numeroFactura']=$this->details['numeroFactura'];
             return $this->from(env('MAIL_FROM_ADDRESS'),env('MAIL_FROM_NAME'))
                 ->view('anulado',$datos)
-                ->subject(' - Documento Anulado')
+                ->subject(env('RAZON', 'Farmacia Eliseo') . ' - Factura N° ' . $this->details['numeroFactura'] . ' Anulada')
                 ->with($this->details);
-            exit;
         }
-        $pathXmlFile=$this->details['carpeta'].'/'.$this->details['sale_id'].'.xml';
+        $pathXmlFile=public_path($this->details['carpeta'].'/'.$this->details['sale_id'].'.xml');
         if (!file_exists($pathXmlFile)) return false;
         $nameFile = substr($pathXmlFile, 0, strlen($pathXmlFile) - 4);
         $content = file_get_contents($pathXmlFile);
@@ -64,9 +63,15 @@ class TestMail extends Mailable
 
         return $this->from(env('MAIL_FROM_ADDRESS'),env('MAIL_FROM_NAME'))
             ->view('vista')
-            ->attach($this->details['carpeta'].'/'.$this->details['sale_id'].'.pdf')
-            ->attach($this->details['carpeta'].'/'.$this->details['sale_id'].'.xml')
-            ->subject('Farmacia Eliseo - Factura N° '.$xml->cabecera->numeroFactura)
+            ->attach(public_path($this->details['carpeta'].'/'.$this->details['sale_id'].'.pdf'), [
+                'as'   => 'Factura_'.$this->details['sale_id'].'.pdf',
+                'mime' => 'application/pdf',
+            ])
+            ->attach(public_path($this->details['carpeta'].'/'.$this->details['sale_id'].'.xml'), [
+                'as'   => 'Factura_'.$this->details['sale_id'].'.xml',
+                'mime' => 'application/xml',
+            ])
+            ->subject(env('RAZON', 'Farmacia Eliseo').' - Factura N° '.$xml->cabecera->numeroFactura)
             ->with($this->details);
     }
 

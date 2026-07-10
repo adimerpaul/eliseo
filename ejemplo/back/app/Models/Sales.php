@@ -1,0 +1,49 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
+
+class Sales extends Model
+{
+    use HasFactory, SoftDeletes;
+    protected $fillable = [
+        "numeroFactura",
+        "cuf",
+        "cufd",
+        "cui",
+        "codigoSucursal",
+        "codigoPuntoVenta",
+        "fechaEmision",
+        "montoTotal",
+        "usuario",
+        "concepto",
+        "codigoRecepcion",
+        "siatEnviado",
+        "codigoRecepcionEventoSignificativo",
+        "siatAnulado",
+        "tipoVenta",
+        "metodoPago",
+        "montoEfectivo",
+        "montoQr",
+        "qrId",
+        "codigoDocumentoSector",
+        "leyenda",
+        "venta",
+        "aporte",
+        "qr",
+        "user_id",
+        "cufd_id",
+        "client_id",
+        "agencia_id",
+        "modificado",
+        "descuento",
+        "descuentoProducto",
+    ];
+    public function details(){ return $this->hasMany(Detail::class, 'sale_id'); }
+    public function client(){ return $this->belongsTo(Client::class); }
+    public function user(){ return $this->belongsTo(User::class); }
+    public function agencia(){ return $this->belongsTo(Agencia::class); }
+}
