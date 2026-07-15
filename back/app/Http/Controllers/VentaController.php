@@ -80,10 +80,19 @@ class VentaController extends Controller{
             }
 
             #5 anular en impuesto (solo si fue facturada con CUF)
+            $codigoMotivo = $request->input('codigoMotivo', 1);
+            $siatWarning = null;
             if (!empty($venta->cuf)) {
-                $codigoMotivo = $request->input('codigoMotivo', 1);
-                $Impuestos = new ImpuestoController();
-                $Impuestos->anularImpuestos($venta->cuf, $codigoMotivo);
+                try {
+                    $Impuestos = new ImpuestoController();
+                    $resp = $Impuestos->anularImpuestos($venta->cuf, $codigoMotivo);
+                    if (method_exists($resp, 'getStatusCode') && $resp->getStatusCode() !== 200) {
+                        $siatWarning = 'No se pudo anular en impuestos (SIAT); la venta fue anulada localmente.';
+                    }
+                } catch (\Throwable $e) {
+                    error_log('Sin respuesta de impuestos al anular: ' . $e->getMessage());
+                    $siatWarning = 'Impuestos (SIAT) no respondió; la venta fue anulada localmente.';
+                }
             }
 
             $venta->estado = 'Anulada';
@@ -119,7 +128,7 @@ class VentaController extends Controller{
             }
 
             return response()->json([
-                'message' => 'Venta anulada y stock restituido correctamente.',
+                'message' => 'Venta anulada y stock restituido correctamente.' . ($siatWarning ? ' ' . $siatWarning : ''),
                 'venta'   => $venta,
             ]);
         });
@@ -193,13 +202,19 @@ class VentaController extends Controller{
             }
 
             #5 revertir en impuesto (solo si fue facturada con CUF)
+            $siatWarning = null;
             if (!empty($venta->cuf)) {
-                $Impuestos = new ImpuestoController();
-                $res = $Impuestos->revertirImpuestos($venta->cuf);
-                
-                if (isset($res->RespuestaServicioFacturacion) && !$res->RespuestaServicioFacturacion->transaccion) {
-                    $msg = $res->RespuestaServicioFacturacion->mensajesList->descripcion ?? 'SIAT rechazó la reversión de la anulación';
-                    abort(422, $msg);
+                try {
+                    $Impuestos = new ImpuestoController();
+                    $res = $Impuestos->revertirImpuestos($venta->cuf);
+
+                    if (isset($res->RespuestaServicioFacturacion) && !$res->RespuestaServicioFacturacion->transaccion) {
+                        $msg = $res->RespuestaServicioFacturacion->mensajesList->descripcion ?? 'SIAT rechazó la reversión de la anulación';
+                        $siatWarning = 'Impuestos (SIAT): ' . $msg . '. La venta fue restaurada localmente.';
+                    }
+                } catch (\Throwable $e) {
+                    error_log('Sin respuesta de impuestos al revertir: ' . $e->getMessage());
+                    $siatWarning = 'Impuestos (SIAT) no respondió; la venta fue restaurada localmente.';
                 }
             }
 
@@ -229,7 +244,7 @@ class VentaController extends Controller{
             }
 
             return response()->json([
-                'message' => 'Reversión completada y stock descontado correctamente.',
+                'message' => 'Reversión completada y stock descontado correctamente.' . ($siatWarning ? ' ' . $siatWarning : ''),
                 'venta'   => $venta,
             ]);
         });
@@ -403,7 +418,7 @@ class VentaController extends Controller{
                 ->first();
 
             if (!$cui) {
-                return response()->json(['message' => 'No existe CUI para la venta!!'], 400);
+                abort(422, 'No existe CUI vigente. La venta no fue registrada.');
             }
 
             $cufd = Cufd::where('codigoPuntoVenta', $codigoPuntoVenta)
@@ -411,7 +426,7 @@ class VentaController extends Controller{
                 ->where('fechaVigencia', '>=', now())
                 ->first();
             if (!$cufd) {
-                return response()->json(['message' => 'No existe CUFD para la venta!!'], 400);
+                abort(422, 'No existe CUFD vigente. La venta no fue registrada.');
             }
 
             // 7) Preparar datos para impuestos
@@ -578,11 +593,10 @@ class VentaController extends Controller{
                 if( isset($result->RespuestaServicioFacturacion) &&
                     isset($result->RespuestaServicioFacturacion->transaccion) &&
                     !$result->RespuestaServicioFacturacion->transaccion ) {
-                    $venta->delete();
-                    return response()->json(['message' => 'Error al enviar a impuestos: ' .
+                    abort(422, 'Error al enviar a impuestos: ' .
                         (isset($result->RespuestaServicioFacturacion->mensajesList->descripcion) ?
                             $result->RespuestaServicioFacturacion->mensajesList->descripcion : 'Error desconocido')
-                    ], 400);
+                        . '. La venta no fue registrada.');
                 }
 
                 if( isset($result->RespuestaServicioFacturacion) &&
@@ -616,32 +630,11 @@ class VentaController extends Controller{
                     }
                 }
             } catch (\Exception $e) {
-                error_log('Error: ' . $e->getMessage());
-                $venta->cuf = $cuf;
-                $venta->cufd = $cufd->codigo;
-                $venta->online = false;
-                $venta->leyenda = $leyendaRandom;
-                $venta->tipo_comprobante = 'FACTURA';
-                $venta->save();
-
-                if ($cliente->email && $cliente->email != '') {
-                    try {
-                        Mail::to($cliente->email)->send(new TestMail([
-                            "title" => "Factura",
-                            "body" => "Gracias por su compra",
-                            "online" => false,
-                            "anulado" => false,
-                            "cuf" => $cuf,
-                            "numeroFactura" => $numeroFactura,
-                            "sale_id" => $venta->id,
-                            "carpeta" => "archivos",
-                            "total" => $montoTotalFactura,
-                            "fecha" => $venta->fecha . ' ' . $venta->hora,
-                        ]));
-                    } catch (\Exception $e) {
-                        error_log('Error al enviar correo de factura: ' . $e->getMessage());
-                    }
+                if ($e instanceof \Symfony\Component\HttpKernel\Exception\HttpException) {
+                    throw $e;
                 }
+                error_log('Error: ' . $e->getMessage());
+                abort(422, 'Sin respuesta de impuestos (SIAT). La venta no fue registrada, intente nuevamente.');
             }
             return response()->json(
                 $venta->load('cliente','ventaDetalles.producto')

@@ -375,7 +375,7 @@ export default {
       }).onOk(codigoMotivo => {
         this.loading = true
         this.$axios.put(`ventasAnular/${id}`, { codigoMotivo: codigoMotivo }).then(res => {
-          this.$alert.success('Venta anulada')
+          this.$alert.success(res.data?.message || 'Venta anulada')
           this.ventasGet()
         }).catch(error => {
           this.$alert.error(error.response?.data?.message || 'Error al anular la venta')
@@ -388,7 +388,7 @@ export default {
       this.$alert.dialog('¿Está seguro de revertir la anulación de la venta?').onOk(() => {
         this.loading = true
         this.$axios.put(`ventasRevertir/${id}`).then(res => {
-          this.$alert.success('Reversión completada con éxito')
+          this.$alert.success(res.data?.message || 'Reversión completada con éxito')
           this.ventasGet()
         }).catch(error => {
           this.$alert.error(error.response.data.message || 'Error al revertir la venta')
