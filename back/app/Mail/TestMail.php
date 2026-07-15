@@ -36,9 +36,20 @@ class TestMail extends Mailable
         if ($this->details['anulado']){
             $datos['cuf']=$this->details['cuf'];
             $datos['numeroFactura']=$this->details['numeroFactura'];
+            $datos['motivo']=$this->details['motivo'] ?? null;
             return $this->from(env('MAIL_FROM_ADDRESS'),env('MAIL_FROM_NAME'))
                 ->view('anulado',$datos)
                 ->subject(env('RAZON', 'Farmacia Eliseo') . ' - Factura N° ' . $this->details['numeroFactura'] . ' Anulada')
+                ->with($this->details);
+        }
+        if (isset($this->details['revertido']) && $this->details['revertido']){
+            $datos['cuf']=$this->details['cuf'];
+            $datos['numeroFactura']=$this->details['numeroFactura'];
+            $datos['total']=$this->details['total'] ?? null;
+            $datos['fecha']=$this->details['fecha'] ?? null;
+            return $this->from(env('MAIL_FROM_ADDRESS'),env('MAIL_FROM_NAME'))
+                ->view('revertido',$datos)
+                ->subject(env('RAZON', 'Farmacia Eliseo') . ' - Factura N° ' . $this->details['numeroFactura'] . ' Reactivada')
                 ->with($this->details);
         }
         $pathXmlFile=public_path($this->details['carpeta'].'/'.$this->details['sale_id'].'.xml');

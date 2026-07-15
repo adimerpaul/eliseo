@@ -120,11 +120,17 @@
                 </q-item-section>
                 <q-item-section>Imprimir impuesto</q-item-section>
               </q-item>
-              <q-item clickable v-ripple @click="anular(venta.id)" v-close-popup>
+              <q-item clickable v-ripple @click="anular(venta.id)" v-close-popup v-if="venta.estado === 'Activo'">
                 <q-item-section avatar>
                   <q-icon name="delete" />
                 </q-item-section>
                 <q-item-section>Anular</q-item-section>
+              </q-item>
+              <q-item clickable v-ripple @click="revertir(venta.id)" v-close-popup v-if="venta.estado === 'Anulada'">
+                <q-item-section avatar>
+                  <q-icon name="restore" />
+                </q-item-section>
+                <q-item-section>Revertir Anulación</q-item-section>
               </q-item>
               <q-item clickable v-ripple @click="dialogEventoClick(venta)" v-close-popup v-if="!venta.online && venta.cuf && venta.estado === 'Activo'">
                 <q-item-section avatar>
@@ -352,13 +358,42 @@ export default {
       this.codigoMotivoEvento = 2
     },
     anular(id) {
-      this.$alert.dialog('¿Está seguro de anular la venta?').onOk(() => {
+      this.$q.dialog({
+        title: 'Anular Factura',
+        message: 'Seleccione el motivo de la anulación:',
+        options: {
+          type: 'radio',
+          model: 1,
+          items: [
+            { label: '1 - FACTURA MAL EMITIDA', value: 1 },
+            { label: '2 - DATOS DE EMISION INCORRECTOS', value: 2 },
+            { label: '3 - FACTURA O NOTA DEVUELTA', value: 3 }
+          ]
+        },
+        cancel: true,
+        persistent: true
+      }).onOk(codigoMotivo => {
         this.loading = true
-        this.$axios.put(`ventasAnular/${id}`).then(res => {
+        this.$axios.put(`ventasAnular/${id}`, { codigoMotivo: codigoMotivo }).then(res => {
           this.$alert.success('Venta anulada')
           this.ventasGet()
         }).catch(error => {
-          this.$alert.error(error.response.data.message)
+          this.$alert.error(error.response?.data?.message || 'Error al anular la venta')
+        }).finally(() => {
+          this.loading = false
+        })
+      })
+    },
+    revertir(id) {
+      this.$alert.dialog('¿Está seguro de revertir la anulación de la venta?').onOk(() => {
+        this.loading = true
+        this.$axios.put(`ventasRevertir/${id}`).then(res => {
+          this.$alert.success('Reversión completada con éxito')
+          this.ventasGet()
+        }).catch(error => {
+          this.$alert.error(error.response.data.message || 'Error al revertir la venta')
+        }).finally(() => {
+          this.loading = false
         })
       })
     },

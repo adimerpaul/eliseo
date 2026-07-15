@@ -81,8 +81,9 @@ class VentaController extends Controller{
 
             #5 anular en impuesto (solo si fue facturada con CUF)
             if (!empty($venta->cuf)) {
+                $codigoMotivo = $request->input('codigoMotivo', 1);
                 $Impuestos = new ImpuestoController();
-                $Impuestos->anularImpuestos($venta->cuf);
+                $Impuestos->anularImpuestos($venta->cuf, $codigoMotivo);
             }
 
             $venta->estado = 'Anulada';
@@ -90,6 +91,13 @@ class VentaController extends Controller{
 
             $client = Cliente::find($venta->cliente_id);
             if ($client && $client->email != '') {
+                $motivos = [
+                    1 => 'FACTURA MAL EMITIDA',
+                    2 => 'DATOS DE EMISION INCORRECTOS',
+                    3 => 'FACTURA O NOTA DEVUELTA'
+                ];
+                $motivoTexto = $motivos[$codigoMotivo] ?? 'FACTURA MAL EMITIDA';
+
                 $details = [
                     "title" => "Factura",
                     "body" => "Factura anulada",
@@ -101,6 +109,7 @@ class VentaController extends Controller{
                     "carpeta" => "archivos",
                     "total" => $venta->total,
                     "fecha" => $venta->fecha . ' ' . $venta->hora,
+                    "motivo" => $motivoTexto,
                 ];
                 try {
                     Mail::to($client->email)->send(new TestMail($details));
@@ -111,6 +120,116 @@ class VentaController extends Controller{
 
             return response()->json([
                 'message' => 'Venta anulada y stock restituido correctamente.',
+                'venta'   => $venta,
+            ]);
+        });
+    }
+
+    public function revertir(Request $request, $id)
+    {
+        return DB::transaction(function () use ($request, $id) {
+            $venta = Venta::with('ventaDetalles')
+                ->lockForUpdate()
+                ->findOrFail($id);
+
+            if ($venta->estado !== 'Anulada') {
+                return response()->json(['message' => 'La venta no está anulada, no se puede revertir.'], 400);
+            }
+
+            foreach ($venta->ventaDetalles as $detalle) {
+                $productoId = (int) $detalle->producto_id;
+                $porDescontar = (float) $detalle->cantidad;
+                $cdDetalleId = $detalle->compra_detalle_id ?? null;
+
+                // 1) Intentar descontar del mismo lote original
+                if (!empty($cdDetalleId)) {
+                    $cd = CompraDetalle::where('id', $cdDetalleId)
+                        ->lockForUpdate()
+                        ->first();
+
+                    if ($cd && (int)$cd->producto_id === $productoId && $cd->estado === 'Activo') {
+                        $disponible = (float)$cd->cantidad_venta;
+                        $descontar = min($porDescontar, $disponible);
+
+                        if ($descontar > 0) {
+                            $cd->cantidad_venta = (float)$cd->cantidad_venta - $descontar;
+                            $cd->save();
+                            $porDescontar -= $descontar;
+                        }
+                    }
+                }
+
+                // 2) Si aún queda por descontar -> FIFO sobre otros lotes activos con stock
+                if ($porDescontar > 0) {
+                    $lotes = CompraDetalle::where('producto_id', $productoId)
+                        ->where('estado', 'Activo')
+                        ->whereNull('deleted_at')
+                        ->where('cantidad_venta', '>', 0)
+                        ->orderByRaw("CASE WHEN fecha_vencimiento IS NULL THEN 1 ELSE 0 END, fecha_vencimiento ASC")
+                        ->lockForUpdate()
+                        ->get(['id', 'cantidad_venta']);
+
+                    foreach ($lotes as $l) {
+                        if ($porDescontar <= 0) break;
+
+                        $disponible = (float)$l->cantidad_venta;
+                        if ($disponible <= 0) continue;
+
+                        $take = min($disponible, $porDescontar);
+                        $l->cantidad_venta = (float)$l->cantidad_venta - $take;
+                        $l->save();
+
+                        // Actualizar el lote en el detalle
+                        $detalle->compra_detalle_id = $l->id;
+                        $detalle->save();
+
+                        $porDescontar -= $take;
+                    }
+
+                    if ($porDescontar > 1e-9) {
+                        abort(422, 'No hay suficiente stock en los lotes activos para revertir la anulación de esta venta.');
+                    }
+                }
+            }
+
+            #5 revertir en impuesto (solo si fue facturada con CUF)
+            if (!empty($venta->cuf)) {
+                $Impuestos = new ImpuestoController();
+                $res = $Impuestos->revertirImpuestos($venta->cuf);
+                
+                if (isset($res->RespuestaServicioFacturacion) && !$res->RespuestaServicioFacturacion->transaccion) {
+                    $msg = $res->RespuestaServicioFacturacion->mensajesList->descripcion ?? 'SIAT rechazó la reversión de la anulación';
+                    abort(422, $msg);
+                }
+            }
+
+            $venta->estado = 'Activo';
+            $venta->save();
+
+            $client = Cliente::find($venta->cliente_id);
+            if ($client && $client->email != '') {
+                $details = [
+                    "title" => "Factura",
+                    "body" => "Factura revertida - su factura está activa nuevamente",
+                    "online" => true,
+                    "anulado" => false,
+                    "revertido" => true,
+                    "cuf" => $venta->cuf,
+                    "numeroFactura" => $venta->id,
+                    "sale_id" => $venta->id,
+                    "carpeta" => "archivos",
+                    "total" => $venta->total,
+                    "fecha" => $venta->fecha . ' ' . $venta->hora,
+                ];
+                try {
+                    Mail::to($client->email)->send(new TestMail($details));
+                } catch (\Exception $e) {
+                    error_log('Error al enviar correo de reversión: ' . $e->getMessage());
+                }
+            }
+
+            return response()->json([
+                'message' => 'Reversión completada y stock descontado correctamente.',
                 'venta'   => $venta,
             ]);
         });
@@ -420,7 +539,8 @@ class VentaController extends Controller{
 
             try {
                 $url=env('URL_SIAT');
-                $client = new \SoapClient("{$url}ServicioFacturacionCompraVentaXXX?WSDL", [
+                //ACA EL XXXXXX
+                $client = new \SoapClient("{$url}ServicioFacturacionCompraVenta?WSDL", [
                     'stream_context' => stream_context_create([
                         'http' => [
                             'header'  => "apikey: TokenApi " . $token,

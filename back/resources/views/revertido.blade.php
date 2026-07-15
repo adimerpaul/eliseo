@@ -5,7 +5,7 @@
     <style>
         body { font-family: Arial, sans-serif; color: #333; background: #f7f7f7; margin: 0; padding: 0; }
         .container { max-width: 560px; margin: 30px auto; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,.1); }
-        .header { background: #c53030; padding: 24px 32px; text-align: center; }
+        .header { background: #319795; padding: 24px 32px; text-align: center; }
         .header h1 { color: #fff; margin: 0; font-size: 22px; }
         .body { padding: 28px 32px; }
         .body p { line-height: 1.6; font-size: 15px; }
@@ -14,7 +14,7 @@
         .info-box td { padding: 4px 0; font-size: 14px; }
         .info-box td:first-child { color: #666; width: 160px; }
         .info-box td:last-child { font-weight: bold; }
-        .badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 13px; font-weight: bold; background: #fed7d7; color: #9b2c2c; }
+        .badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 13px; font-weight: bold; background: #c6f6d5; color: #22543d; }
         .footer { background: #f0f4f8; padding: 16px 32px; text-align: center; font-size: 12px; color: #666; }
     </style>
 </head>
@@ -26,8 +26,8 @@
     <div class="body">
         <p>Estimado(a) cliente,</p>
 
-        <p><span class="badge">&#10007; Factura Anulada</span></p>
-        <p>Le informamos que la siguiente factura ha sido <strong>anulada</strong> en el sistema tributario SIAT.</p>
+        <p><span class="badge">&#10004; Factura Reactivada</span></p>
+        <p>Le informamos que la anulación de la siguiente factura ha sido <strong>revertida</strong> en el sistema tributario SIAT. La factura se encuentra activa y vigente nuevamente.</p>
 
         <div class="info-box">
             <table>
@@ -47,12 +47,6 @@
                     <td>{{ $fecha }}</td>
                 </tr>
                 @endisset
-                @isset($motivo)
-                <tr>
-                    <td>Motivo de anulación:</td>
-                    <td>{{ $motivo }}</td>
-                </tr>
-                @endisset
                 @if(!empty($cuf))
                 <tr>
                     <td>CUF:</td>
@@ -62,7 +56,7 @@
             </table>
         </div>
 
-        <p>Si tiene alguna consulta sobre esta anulación, no dude en contactarnos.</p>
+        <p>Si tiene alguna consulta sobre esta reversión, no dude en contactarnos.</p>
         <p>Atentamente,<br><strong>{{ env('RAZON', 'Farmacia Eliseo') }}</strong><br>
         Tel. {{ env('TELEFONO') }}</p>
     </div>

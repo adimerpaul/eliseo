@@ -472,7 +472,7 @@ class ImpuestoController extends Controller{
             return response()->json(["success"=>false,'message' => $e->getMessage()], 500);
         }
     }
-    function anularImpuestos($cuf){
+    function anularImpuestos($cuf, $codigoMotivo = 1){
         $cui=Cui::where('codigoPuntoVenta',0)->where('codigoSucursal',0)->where('fechaVigencia','>=', now());
         if ($cui->count()==0){
             return response()->json(['message' => 'El CUI no existe'], 400);
@@ -506,7 +506,7 @@ class ImpuestoController extends Controller{
                 "cuis"=>Cui::where('codigoPuntoVenta',0)->where('codigoSucursal',0)->where('fechaVigencia','>=', now())->orderBy('id','desc')->first()->codigo,
                 "nit"=>env('NIT'),
                 "tipoFacturaDocumento"=>1,
-                "codigoMotivo"=>1,
+                "codigoMotivo"=>$codigoMotivo,
                 "cuf"=>$cuf,
             ]
         ]);
@@ -645,5 +645,44 @@ class ImpuestoController extends Controller{
             $cufd->save();
             return response()->json(['success' => 'CUFD creado correctamente'], 200);
         }
+    }
+    function revertirImpuestos($cuf){
+        $cui=Cui::where('codigoPuntoVenta',0)->where('codigoSucursal',0)->where('fechaVigencia','>=', now());
+        if ($cui->count()==0){
+            throw new \Exception('El CUI no existe');
+        }
+        $cufd=Cufd::where('codigoPuntoVenta',0)->where('codigoSucursal',0)->where('fechaVigencia','>=', now());
+        if ($cufd->count()==0){
+            throw new \Exception('El CUFD no existe');
+        }
+        $client = new \SoapClient(env("URL_SIAT")."ServicioFacturacionCompraVenta?WSDL",  [
+            'stream_context' => stream_context_create([
+                'http' => [
+                    'header' => "apikey: TokenApi ".env('TOKEN'),
+                ]
+            ]),
+            'cache_wsdl' => WSDL_CACHE_NONE,
+            'compression' => SOAP_COMPRESSION_ACCEPT | SOAP_COMPRESSION_GZIP | SOAP_COMPRESSION_DEFLATE,
+            'trace' => 1,
+            'use' => SOAP_LITERAL,
+            'style' => SOAP_DOCUMENT,
+        ]);
+        $result= $client->reversionAnulacionFactura([
+            "SolicitudServicioReversionAnulacionFactura"=>[
+                "codigoAmbiente"=>env('AMBIENTE'),
+                "codigoDocumentoSector"=>1,
+                "codigoEmision"=>1,
+                "codigoModalidad"=>env('MODALIDAD'),
+                "codigoPuntoVenta"=>0,
+                "codigoSistema"=>env('CODIGO_SISTEMA'),
+                "codigoSucursal"=>0,
+                "cufd"=>Cufd::where('codigoPuntoVenta',0)->where('codigoSucursal',0)->where('fechaVigencia','>=', now())->orderBy('id','desc')->first()->codigo,
+                "cuis"=>Cui::where('codigoPuntoVenta',0)->where('codigoSucursal',0)->where('fechaVigencia','>=', now())->orderBy('id','desc')->first()->codigo,
+                "nit"=>env('NIT'),
+                "tipoFacturaDocumento"=>1,
+                "cuf"=>$cuf,
+            ]
+        ]);
+        return $result;
     }
 }
