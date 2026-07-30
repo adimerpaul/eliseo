@@ -720,6 +720,10 @@ export default {
         this.ventaDialog = false;
         this.$q.notify({ type: 'positive', message: 'Venta realizada con éxito', icon: 'check', timeout: 3000 });
 
+        if (res.data.siat_warning) {
+          this.$q.notify({ type: 'warning', message: res.data.siat_warning, icon: 'cloud_off', timeout: 8000, multiLine: true });
+        }
+
         if (res.data.tipo_comprobante === 'FACTURA') {
           Imprimir.printFactura(res.data);
         } else {

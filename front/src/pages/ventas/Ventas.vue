@@ -116,6 +116,32 @@
               <div class="col-12 col-md-2 text-right">
                 <q-btn color="positive" label="Nueva venta"  no-caps  icon="add_circle_outline" :loading="loading" :to="'/ventaNuevo'" />
               </div>
+              <div class="col-12 row items-center q-gutter-sm q-pa-xs">
+                <q-select
+                  v-model="envioFilter"
+                  :options="envioOptions"
+                  label="Envío a SIAT"
+                  dense
+                  outlined
+                  emit-value
+                  map-options
+                  style="min-width: 200px"
+                />
+                <q-chip
+                  v-if="ventasPendientes.length"
+                  clickable
+                  color="orange"
+                  text-color="white"
+                  icon="cloud_off"
+                  @click="envioFilter = 'pendientes'"
+                >
+                  {{ ventasPendientes.length }} factura(s) sin enviar a SIAT
+                  <q-tooltip>De cualquier fecha. Clic para verlas y enviarlas.</q-tooltip>
+                </q-chip>
+                <q-chip v-else color="green" text-color="white" icon="cloud_done">
+                  Todas las facturas fueron enviadas
+                </q-chip>
+              </div>
             </div>
           </q-card-section>
         </q-card>
@@ -137,8 +163,8 @@
         </tr>
       </thead>
       <tbody>
-      <template v-if="ventas.length != 0">
-        <tr v-for="(venta, index) in ventas" :key="venta.id">
+      <template v-if="ventasFiltradas.length != 0">
+        <tr v-for="(venta, index) in ventasFiltradas" :key="venta.id">
           <td>
             <q-btn-dropdown color="primary" label="Opciones" no-caps dense size="10px" :loading="loading">
               <q-item clickable v-ripple @click="imprimir(venta)" v-close-popup>
@@ -207,7 +233,10 @@
             </div>
           </td>
           <td>
-            <q-chip size="10px" :color="venta.online ? 'green' : 'red'" class="text-white" dense>{{ venta.online ? 'S' : 'N' }}</q-chip>
+            <q-chip size="10px" :color="venta.online ? 'green' : (venta.tipo_comprobante === 'FACTURA' ? 'orange' : 'red')" class="text-white" dense>
+              {{ venta.online ? 'S' : 'N' }}
+              <q-tooltip>{{ venta.online ? 'Enviada a SIAT' : (venta.tipo_comprobante === 'FACTURA' ? 'Factura pendiente de envío a SIAT' : 'No se envía a SIAT') }}</q-tooltip>
+            </q-chip>
           </td>
         </tr>
       </template>
@@ -283,6 +312,14 @@ export default {
       ],
       ventas: [],
       venta: {},
+      // facturas sin enviar a SIAT, de cualquier fecha
+      ventasPendientes: [],
+      envioFilter: 'todas',
+      envioOptions: [
+        {label: 'Todas', value: 'todas'},
+        {label: 'Sin enviar a SIAT', value: 'pendientes'},
+        {label: 'Enviadas a SIAT', value: 'enviadas'},
+      ],
       ventaDialog: false,
       fechaInicio: moment().format('YYYY-MM-DD'),
       fechaFin: moment().format('YYYY-MM-DD'),
@@ -471,9 +508,22 @@ export default {
       }).finally(() => {
         this.loading = false
       })
+      this.ventasPendientesGet()
+    },
+    ventasPendientesGet() {
+      this.$axios.get('ventasPendientes').then(res => {
+        this.ventasPendientes = res.data
+      }).catch(error => {
+        console.error(error)
+      })
     },
   },
   computed: {
+    ventasFiltradas() {
+      if (this.envioFilter === 'pendientes') return this.ventasPendientes
+      if (this.envioFilter === 'enviadas') return this.ventas.filter(venta => venta.online)
+      return this.ventas
+    },
     usersTodos() {
       // colocar a user todos
       return [{label: 'Todos', value: ''}, ...this.users.map(user => ({label: user.name, value: user.id}))]
