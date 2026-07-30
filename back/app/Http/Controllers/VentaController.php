@@ -674,11 +674,17 @@ class VentaController extends Controller{
         $fechaInicio = $request->fechaInicio;
         $fechaFin = $request->fechaFin;
         $user_id = $request->user;
+        $producto_id = $request->producto_id;
         $user = $request->user();
 
         if ($user->role == 'Admin') {
             $ventas = Venta::with('user', 'cliente')
                 ->whereBetween('fecha', [$fechaInicio, $fechaFin])
+                ->when($producto_id, function ($q) use ($producto_id) {
+                    $q->whereHas('ventaDetalles', function ($qq) use ($producto_id) {
+                        $qq->where('producto_id', $producto_id);
+                    });
+                })
                 ->orderBy('created_at', 'desc')
                 ->get();
         }else{
@@ -686,6 +692,11 @@ class VentaController extends Controller{
                 ->where('user_id', $user->id)
                 ->whereBetween('fecha', [$fechaInicio, $fechaFin])
                 ->where('agencia', $user->agencia)
+                ->when($producto_id, function ($q) use ($producto_id) {
+                    $q->whereHas('ventaDetalles', function ($qq) use ($producto_id) {
+                        $qq->where('producto_id', $producto_id);
+                    });
+                })
                 ->orderBy('created_at', 'desc')
                 ->get();
         }

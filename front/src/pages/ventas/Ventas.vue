@@ -60,7 +60,47 @@
               <div class="col-12 col-md-2">
                 <q-select v-model="user" :options="usersTodos" label="Usuario" dense outlined  emit-value map-options/>
               </div>
-              <div class="col-12 col-md-2">
+              <div class="col-12 col-md-3">
+                <q-select
+                  v-model="productoFiltro"
+                  :options="productoOptions"
+                  label="Producto"
+                  option-label="nombre"
+                  option-value="id"
+                  dense outlined clearable
+                  use-input
+                  input-debounce="300"
+                  :loading="productoLoading"
+                  @filter="filtrarProductos"
+                  @update:model-value="ventasGet()"
+                  hide-selected
+                  fill-input
+                >
+                  <template #no-option>
+                    <q-item>
+                      <q-item-section class="text-grey">Sin productos</q-item-section>
+                    </q-item>
+                  </template>
+                  <template #option="scope">
+                    <q-item v-bind="scope.itemProps">
+                      <q-item-section avatar>
+                        <q-img :src="scope.opt.imagen_url" style="width:32px;height:32px;border-radius:4px;" fit="contain">
+                          <template #error>
+                            <div class="absolute-full flex flex-center bg-grey-2">
+                              <q-icon name="medication" size="16px" color="grey-5" />
+                            </div>
+                          </template>
+                        </q-img>
+                      </q-item-section>
+                      <q-item-section>
+                        <q-item-label>{{ scope.opt.nombre }}</q-item-label>
+                        <q-item-label caption>Stock: {{ scope.opt.stock ?? 0 }}</q-item-label>
+                      </q-item-section>
+                    </q-item>
+                  </template>
+                </q-select>
+              </div>
+              <div class="col-12 col-md-1">
                 <q-btn color="primary" label="Buscar"  no-caps  icon="search" :loading="loading" @click="ventasGet()" />
               </div>
               <div class="col-12 col-md-2 text-right">
@@ -251,6 +291,9 @@ export default {
       gestiones: [],
       users: [],
       user: '',
+      productoFiltro: null,
+      productoOptions: [],
+      productoLoading: false,
       filter: '',
       roles: ['Doctor', 'Enfermera', 'Administrativo', 'Secretaria'],
       columns: [
@@ -305,6 +348,21 @@ export default {
       }).catch(error => {
         this.$alert.error(error.response.data.message)
       })
+    },
+    filtrarProductos(val, update, abort) {
+      this.productoLoading = true
+      this.$axios.get('productosStock', { params: { search: val, per_page: 20 } })
+        .then(res => {
+          update(() => {
+            this.productoOptions = res.data.data
+          })
+        })
+        .catch(() => {
+          abort()
+        })
+        .finally(() => {
+          this.productoLoading = false
+        })
     },
     imprimir(venta) {
       Imprimir.printFactura(venta)
@@ -403,7 +461,8 @@ export default {
         params: {
           fechaInicio: this.fechaInicio,
           fechaFin: this.fechaFin,
-          user: this.user
+          user: this.user,
+          producto_id: this.productoFiltro?.id ?? ''
         }
       }).then(res => {
         this.ventas = res.data
