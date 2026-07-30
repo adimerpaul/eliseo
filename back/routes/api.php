@@ -36,6 +36,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::post('/ventas', [App\Http\Controllers\VentaController::class, 'store']);
     Route::get('/ventas', [App\Http\Controllers\VentaController::class, 'index']);
+    Route::get('/ventasPendientes', [App\Http\Controllers\VentaController::class, 'pendientes']);
     Route::put('/ventasAnular/{venta}', [App\Http\Controllers\VentaController::class, 'anular']);
     Route::put('/ventasRevertir/{venta}', [App\Http\Controllers\VentaController::class, 'revertir']);
     Route::put('/tipoVentasChange/{venta}', [App\Http\Controllers\VentaController::class, 'tipoVentasChange']);

@@ -403,15 +403,16 @@ class VentaController extends Controller{
                 $venta->leyenda = 'Ley N° 453: Puedes acceder a la reclamación cuando tus derechos han sido vulnerados.';
                 $venta->save();
 
-                return response()->json(
-                    $venta->load('cliente','ventaDetalles.producto')
-                );
+                return $this->respuestaVenta($venta);
             }
 
-            // 6) Si CI es válida, enviar a impuestos (FACTURA)
+            // 6) Si CI es válida, emitir FACTURA.
+            //    Si impuestos (SIAT) falla, la factura igual se emite FUERA DE LÍNEA
+            //    (online = false) para enviarse después con /enviarPaquete.
             $codigoPuntoVenta = 0;
             $codigoSucursal   = 0;
 
+            // Sin CUI/CUFD vigente no se puede emitir ni enviar después: la venta no se registra
             $cui = Cui::where('codigoPuntoVenta', $codigoPuntoVenta)
                 ->where('codigoSucursal', $codigoSucursal)
                 ->where('fechaVigencia', '>=', now())
@@ -425,6 +426,7 @@ class VentaController extends Controller{
                 ->where('codigoSucursal', $codigoSucursal)
                 ->where('fechaVigencia', '>=', now())
                 ->first();
+
             if (!$cufd) {
                 abort(422, 'No existe CUFD vigente. La venta no fue registrada.');
             }
@@ -444,18 +446,154 @@ class VentaController extends Controller{
             ];
             $leyendaRandom = $leyendas[array_rand($leyendas)];
 
-            $detalles = $venta->ventaDetalles;
+            // 8) Emitir la factura (CUF + XML) en modalidad EN LÍNEA (codigoEmision = 1).
+            //    Sin XML no hay factura ni forma de reenviarla: la venta no se registra.
+            try {
+                $emision = $this->generarXmlFactura($venta, $cliente, $user, $cufd, 1, $leyendaRandom);
+            } catch (\Throwable $e) {
+                error_log('Error al generar el XML de la factura (venta ' . $venta->id . '): ' . $e->getMessage());
+                abort(422, 'No se pudo generar la factura: ' . $e->getMessage() . ' La venta no fue registrada.');
+            }
 
-            $detalleFactura = '';
-            $montoTotalFactura = 0.0;
-            foreach ($detalles as $detalle) {
-                $subTotalDetalle = round((float)$detalle->precio * (float)$detalle->cantidad, 2);
-                $montoTotalFactura += $subTotalDetalle;
-                $detalleFactura .= "<detalle>
+            $venta->cuf              = $emision['cuf'];
+            $venta->cufd             = $cufd->codigo;
+            $venta->tipo_comprobante = 'FACTURA';
+            $venta->leyenda          = $leyendaRandom;
+            $venta->online           = false; // sólo pasa a true si SIAT confirma
+            $venta->save();
+
+            // 9) Enviar a impuestos. Cualquier fallo deja la factura FUERA DE LÍNEA
+            try {
+                $url = env('URL_SIAT');
+                $client = new \SoapClient("{$url}ServicioFacturacionCompraVenta?WSDL", [
+                    'stream_context' => stream_context_create([
+                        'http' => [
+                            'header'  => "apikey: TokenApi " . env('TOKEN'),
+                            'timeout' => 30,
+                        ]
+                    ]),
+                    'cache_wsdl'   => WSDL_CACHE_NONE,
+                    'compression'  => SOAP_COMPRESSION_ACCEPT | SOAP_COMPRESSION_GZIP | SOAP_COMPRESSION_DEFLATE,
+                    'trace'        => 1,
+                    'use'          => SOAP_LITERAL,
+                    'style'        => SOAP_DOCUMENT,
+                    'connection_timeout' => 30,
+                ]);
+
+                $result = $client->recepcionFactura([
+                    "SolicitudServicioRecepcionFactura" => [
+                        "codigoAmbiente" => env('AMBIENTE'),
+                        "codigoDocumentoSector" => 1,
+                        "codigoEmision" => 1,
+                        "codigoModalidad" => env('MODALIDAD'),
+                        "codigoPuntoVenta" => $codigoPuntoVenta,
+                        "codigoSistema" => env('CODIGO_SISTEMA'),
+                        "codigoSucursal" => $codigoSucursal,
+                        "cufd" => $cufd->codigo,
+                        "cuis" => $cui->codigo,
+                        "nit" => env('NIT'),
+                        "tipoFacturaDocumento" => 1,
+                        "archivo" => $emision['archivo'],
+                        "fechaEnvio" => $emision['fechaEnvio'],
+                        "hashArchivo" => $emision['hashArchivo'],
+                    ]
+                ]);
+                error_log('result: ' . json_encode($result));
+
+                $transaccion = $result->RespuestaServicioFacturacion->transaccion ?? false;
+                if (!$transaccion) {
+                    throw new \RuntimeException(
+                        $result->RespuestaServicioFacturacion->mensajesList->descripcion ?? 'Error desconocido'
+                    );
+                }
+
+                $venta->online = true;
+                $venta->save();
+
+                // Enviar correo directo (sin cola, para no depender del worker)
+                if ($cliente->email && $cliente->email != '') {
+                    try {
+                        Mail::to($cliente->email)->send(new TestMail([
+                            "title" => "Factura",
+                            "body" => "Gracias por su compra",
+                            "online" => true,
+                            "anulado" => false,
+                            "cuf" => $venta->cuf,
+                            "numeroFactura" => $venta->id,
+                            "sale_id" => $venta->id,
+                            "carpeta" => "archivos",
+                            "total" => $emision['montoTotal'],
+                            "fecha" => $venta->fecha . ' ' . $venta->hora,
+                        ]));
+                    } catch (\Throwable $eMail) {
+                        error_log('Error al enviar correo de factura: ' . $eMail->getMessage());
+                    }
+                }
+
+                return $this->respuestaVenta($venta);
+            } catch (\Throwable $e) {
+                error_log('Error al enviar a impuestos (venta ' . $venta->id . '): ' . $e->getMessage());
+
+                // Regenerar CUF y XML como FUERA DE LÍNEA (codigoEmision = 2)
+                // para poder reenviarla luego con /enviarPaquete
+                try {
+                    $offline = $this->generarXmlFactura($venta, $cliente, $user, $cufd, 2, $leyendaRandom);
+                    $venta->cuf = $offline['cuf'];
+                } catch (\Throwable $e2) {
+                    error_log('Error al regenerar XML fuera de línea: ' . $e2->getMessage());
+                }
+
+                $venta->online = false;
+                $venta->save();
+
+                return $this->respuestaVenta(
+                    $venta,
+                    'Impuestos (SIAT) no confirmó la factura: ' . $e->getMessage() .
+                    ' La factura se emitió FUERA DE LÍNEA y quedó pendiente de envío.'
+                );
+            }
+        });
+    }
+
+    /**
+     * Respuesta de venta con el mismo formato que espera el frontend,
+     * agregando opcionalmente una advertencia de impuestos.
+     */
+    private function respuestaVenta(Venta $venta, ?string $siatWarning = null)
+    {
+        $payload = $venta->load('cliente', 'ventaDetalles.producto')->toArray();
+        $payload['siat_warning'] = $siatWarning;
+
+        return response()->json($payload);
+    }
+
+    /**
+     * Construye el XML de la factura, lo guarda en public/archivos/{id}.xml y
+     * devuelve el CUF junto al archivo comprimido y su hash listos para SIAT.
+     *
+     * @param int $codigoEmision 1 = en línea, 2 = fuera de línea
+     */
+    private function generarXmlFactura(Venta $venta, $cliente, $user, Cufd $cufd, int $codigoEmision, string $leyenda): array
+    {
+        $nit                   = env('NIT');
+        $codigoSucursal        = 0;
+        $codigoPuntoVenta      = 0;
+        $codigoModalidad       = env('MODALIDAD');
+        $tipoFacturaDocumento  = 1;
+        $codigoDocumentoSector = 1;
+        $numeroFactura         = $venta->id;
+        $fechaEnvio            = date("Y-m-d\TH:i:s.000");
+
+        $detalleFactura    = '';
+        $montoTotalFactura = 0.0;
+        foreach ($venta->ventaDetalles as $detalle) {
+            $subTotalDetalle = round((float)$detalle->precio * (float)$detalle->cantidad, 2);
+            $montoTotalFactura += $subTotalDetalle;
+            $detalleFactura .= "<detalle>
                 <actividadEconomica>4772100</actividadEconomica>
                 <codigoProductoSin>1003655</codigoProductoSin>
                 <codigoProducto>" . $detalle->producto_id . "</codigoProducto>
-                <descripcion>" . utf8_encode(str_replace("&", "&amp;", $detalle->nombre)) . "</descripcion>
+                <descripcion>" . $this->xmlSafe($detalle->nombre) . "</descripcion>
                 <cantidad>" . $detalle->cantidad . "</cantidad>
                 <unidadMedida>62</unidadMedida>
                 <precioUnitario>" . $detalle->precio . "</precioUnitario>
@@ -464,37 +602,24 @@ class VentaController extends Controller{
                 <numeroSerie xsi:nil='true'/>
                 <numeroImei xsi:nil='true'/>
             </detalle>";
-            }
-            $montoTotalFactura = number_format(round($montoTotalFactura, 2), 2, '.', '');
+        }
+        $montoTotalFactura = number_format(round($montoTotalFactura, 2), 2, '.', '');
 
-            $token = env('TOKEN');
-            $nit = env('NIT');
-            $ambiente = env('AMBIENTE');
-            $codigoSucursal = 0;
-            $codigoModalidad = env('MODALIDAD');
-            $codigoEmision = 1;
-            $tipoFacturaDocumento = 1;
-            $codigoDocumentoSector = 1;
-            $numeroFactura = $venta->id;
-            $codigoPuntoVenta = 0;
-            $codigoSistema = env('CODIGO_SISTEMA');
+        $cufGenerador = new CUF();
+        $cuf = $cufGenerador->obtenerCUF(
+            $nit,
+            date("YmdHis000"),
+            $codigoSucursal,
+            $codigoModalidad,
+            $codigoEmision,
+            $tipoFacturaDocumento,
+            $codigoDocumentoSector,
+            $numeroFactura,
+            $codigoPuntoVenta
+        );
+        $cuf = $cuf . $cufd->codigoControl;
 
-            $fechaEnvio = date("Y-m-d\TH:i:s.000");
-            $cuf = new CUF();
-            $cuf = $cuf->obtenerCUF(
-                $nit,
-                date("YmdHis000"),
-                $codigoSucursal,
-                $codigoModalidad,
-                $codigoEmision,
-                $tipoFacturaDocumento,
-                $codigoDocumentoSector,
-                $numeroFactura,
-                $codigoPuntoVenta
-            );
-            $cuf = $cuf . $cufd->codigoControl;
-
-            $text = "<?xml version='1.0' encoding='UTF-8' standalone='yes'?>
+        $text = "<?xml version='1.0' encoding='UTF-8' standalone='yes'?>
         <facturaComputarizadaCompraVenta xsi:noNamespaceSchemaLocation='facturaComputarizadaCompraVenta.xsd' xmlns:xsi='http://www.w3.org/2001/XMLSchema-instance'>
         <cabecera>
         <nitEmisor>" . env('NIT') . "</nitEmisor>
@@ -508,7 +633,7 @@ class VentaController extends Controller{
         <direccion>" . env('DIRECCION') . "</direccion>
         <codigoPuntoVenta>$codigoPuntoVenta</codigoPuntoVenta>
         <fechaEmision>$fechaEnvio</fechaEmision>
-        <nombreRazonSocial>".$this->xmlSafe($cliente->nombre)."</nombreRazonSocial>
+        <nombreRazonSocial>" . $this->xmlSafe($cliente->nombre) . "</nombreRazonSocial>
         <codigoTipoDocumentoIdentidad>" . $cliente->codigoTipoDocumentoIdentidad . "</codigoTipoDocumentoIdentidad>
         <numeroDocumento>" . $cliente->ci . "</numeroDocumento>
         <complemento>" . $cliente->complemento . "</complemento>
@@ -524,122 +649,39 @@ class VentaController extends Controller{
         <descuentoAdicional>0</descuentoAdicional>
         <codigoExcepcion>" . ($cliente->codigoTipoDocumentoIdentidad == 5 ? 1 : 0) . "</codigoExcepcion>
         <cafc xsi:nil='true'/>
-        <leyenda>$leyendaRandom</leyenda>
-        <usuario>" . explode(" ", $user->name)[0] . "</usuario>
+        <leyenda>" . $this->xmlSafe($leyenda) . "</leyenda>
+        <usuario>" . $this->xmlSafe(explode(" ", $user->name)[0]) . "</usuario>
         <codigoDocumentoSector>" . $codigoDocumentoSector . "</codigoDocumentoSector>
         </cabecera>";
-            $text .= $detalleFactura;
-            $text .= "</facturaComputarizadaCompraVenta>";
+        $text .= $detalleFactura;
+        $text .= "</facturaComputarizadaCompraVenta>";
 
-            $xml = new SimpleXMLElement($text);
-            $dom = new DOMDocument('1.0');
+        $xml = new SimpleXMLElement($text);
+        $dom = new DOMDocument('1.0');
+        $dom->preserveWhiteSpace = false;
+        $dom->formatOutput = true;
+        $dom->loadXML($xml->asXML());
 
-            $dom->preserveWhiteSpace = false;
-            $dom->formatOutput = true;
-            $dom->loadXML($xml->asXML());
-            $nameFile = $venta->id;
-            if (!is_dir(public_path('archivos'))) {
-                mkdir(public_path('archivos'), 0777, true);
-            }
-            $dom->save(public_path("archivos/" . $nameFile . '.xml'));
+        if (!is_dir(public_path('archivos'))) {
+            mkdir(public_path('archivos'), 0777, true);
+        }
+        $file   = public_path("archivos/" . $venta->id . '.xml');
+        $gzfile = $file . '.gz';
+        $dom->save($file);
 
-            $file = public_path("archivos/".$nameFile.'.xml');
-            $gzfile = public_path("archivos/".$nameFile.'.xml'.'.gz');
-            $fp = gzopen ($gzfile, 'w9');
-            gzwrite ($fp, file_get_contents($file));
-            gzclose($fp);
+        $fp = gzopen($gzfile, 'w9');
+        gzwrite($fp, file_get_contents($file));
+        gzclose($fp);
 
-            $archivo=$this->getFileGzip($gzfile);
-            $hashArchivo = hash('sha256', $archivo);
+        $archivo = $this->getFileGzip($gzfile);
 
-            try {
-                $url=env('URL_SIAT');
-                //ACA EL XXXXXX
-                $client = new \SoapClient("{$url}ServicioFacturacionCompraVenta?WSDL", [
-                    'stream_context' => stream_context_create([
-                        'http' => [
-                            'header'  => "apikey: TokenApi " . $token,
-                            'timeout' => 30, // Aumentar timeout
-                        ]
-                    ]),
-                    'cache_wsdl'   => WSDL_CACHE_NONE,
-                    'compression'  => SOAP_COMPRESSION_ACCEPT | SOAP_COMPRESSION_GZIP | SOAP_COMPRESSION_DEFLATE,
-                    'trace'        => 1,
-                    'use'          => SOAP_LITERAL,
-                    'style'        => SOAP_DOCUMENT,
-                    'connection_timeout' => 30,
-                ]);
-
-                $result = $client->recepcionFactura([
-                    "SolicitudServicioRecepcionFactura" => [
-                        "codigoAmbiente" => $ambiente,
-                        "codigoDocumentoSector" => $codigoDocumentoSector,
-                        "codigoEmision" => $codigoEmision,
-                        "codigoModalidad" => $codigoModalidad,
-                        "codigoPuntoVenta" => $codigoPuntoVenta,
-                        "codigoSistema" => $codigoSistema,
-                        "codigoSucursal" => $codigoSucursal,
-                        "cufd" => $cufd,
-                        "cuis" => $cui->codigo,
-                        "nit" => $nit,
-                        "tipoFacturaDocumento" => $tipoFacturaDocumento,
-                        "archivo" => $archivo,
-                        "fechaEnvio" => $fechaEnvio,
-                        "hashArchivo" => $hashArchivo,
-                    ]
-                ]);
-                error_log('result: ' . json_encode($result));
-
-                if( isset($result->RespuestaServicioFacturacion) &&
-                    isset($result->RespuestaServicioFacturacion->transaccion) &&
-                    !$result->RespuestaServicioFacturacion->transaccion ) {
-                    abort(422, 'Error al enviar a impuestos: ' .
-                        (isset($result->RespuestaServicioFacturacion->mensajesList->descripcion) ?
-                            $result->RespuestaServicioFacturacion->mensajesList->descripcion : 'Error desconocido')
-                        . '. La venta no fue registrada.');
-                }
-
-                if( isset($result->RespuestaServicioFacturacion) &&
-                    isset($result->RespuestaServicioFacturacion->transaccion) &&
-                    $result->RespuestaServicioFacturacion->transaccion ) {
-                    $venta->cuf = $cuf;
-                    $venta->cufd = $cufd->codigo;
-                    $venta->online = true;
-                    $venta->leyenda = $leyendaRandom;
-                    $venta->tipo_comprobante = 'FACTURA';
-                    $venta->save();
-
-                    // Enviar correo directo (sin cola, para no depender del worker)
-                    if ($cliente->email && $cliente->email != '') {
-                        try {
-                            Mail::to($cliente->email)->send(new TestMail([
-                                "title" => "Factura",
-                                "body" => "Gracias por su compra",
-                                "online" => true,
-                                "anulado" => false,
-                                "cuf" => $cuf,
-                                "numeroFactura" => $numeroFactura,
-                                "sale_id" => $venta->id,
-                                "carpeta" => "archivos",
-                                "total" => $montoTotalFactura,
-                                "fecha" => $venta->fecha . ' ' . $venta->hora,
-                            ]));
-                        } catch (\Exception $e) {
-                            error_log('Error al enviar correo de factura: ' . $e->getMessage());
-                        }
-                    }
-                }
-            } catch (\Exception $e) {
-                if ($e instanceof \Symfony\Component\HttpKernel\Exception\HttpException) {
-                    throw $e;
-                }
-                error_log('Error: ' . $e->getMessage());
-                abort(422, 'Sin respuesta de impuestos (SIAT). La venta no fue registrada, intente nuevamente.');
-            }
-            return response()->json(
-                $venta->load('cliente','ventaDetalles.producto')
-            );
-        });
+        return [
+            'cuf'         => $cuf,
+            'archivo'     => $archivo,
+            'hashArchivo' => hash('sha256', $archivo),
+            'fechaEnvio'  => $fechaEnvio,
+            'montoTotal'  => $montoTotalFactura,
+        ];
     }
 
     function getFileGzip($fileName)
@@ -693,6 +735,27 @@ class VentaController extends Controller{
             $ventas = $ventas->where('user_id', $user_id);
         }
         return $ventas;
+    }
+
+    /**
+     * Facturas activas que aún no fueron aceptadas por SIAT, sin importar la fecha.
+     */
+    function pendientes(Request $request){
+        $user = $request->user();
+
+        $ventas = Venta::with('user', 'cliente')
+            ->where('estado', 'Activo')
+            ->where('tipo_comprobante', 'FACTURA')
+            ->where(function ($q) {
+                $q->where('online', false)->orWhereNull('online');
+            })
+            ->orderBy('created_at', 'desc');
+
+        if ($user->role != 'Admin') {
+            $ventas->where('user_id', $user->id)->where('agencia', $user->agencia);
+        }
+
+        return $ventas->get();
     }
 
     function show($id){
